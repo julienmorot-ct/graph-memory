@@ -33,8 +33,7 @@ settings = get_settings()
 
 # Créer l'instance FastMCP
 mcp = FastMCP(
-    name=settings.mcp_server_name,
-    version="1.0.0"
+    name=settings.mcp_server_name
 )
 
 
