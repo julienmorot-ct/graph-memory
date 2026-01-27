@@ -1,0 +1,281 @@
+# -*- coding: utf-8 -*-
+"""
+TokenManager - Gestion des tokens d'authentification clients.
+
+Les tokens sont stockés dans Neo4j sous forme de nœuds :Token.
+Seul le hash du token est stocké (pas le token en clair).
+"""
+
+import sys
+import secrets
+import hashlib
+from datetime import datetime, timedelta
+from typing import Optional, List
+
+from ..config import get_settings
+from ..core.models import TokenInfo, TokenCreateRequest
+
+
+class TokenManager:
+    """
+    Gestionnaire de tokens clients.
+    
+    Les tokens permettent aux clients (QuoteFlow, Vela, etc.) de s'authentifier
+    auprès du service MCP Memory.
+    
+    Structure du token dans Neo4j:
+    (:Token {
+        hash: "sha256_du_token",
+        client_name: "quoteflow",
+        permissions: ["read", "write"],
+        memory_ids: ["mem1", "mem2"],  # vide = accès à toutes
+        created_at: datetime,
+        expires_at: datetime,
+        is_active: true
+    })
+    """
+    
+    def __init__(self, graph_service=None):
+        """
+        Initialise le TokenManager.
+        
+        Args:
+            graph_service: Instance de GraphService (lazy-loaded si None)
+        """
+        self._graph_service = graph_service
+        self._settings = get_settings()
+    
+    @property
+    def graph(self):
+        """Lazy-load du GraphService."""
+        if self._graph_service is None:
+            from ..core.graph import get_graph_service
+            self._graph_service = get_graph_service()
+        return self._graph_service
+    
+    @staticmethod
+    def _hash_token(token: str) -> str:
+        """Hash un token avec SHA256."""
+        return hashlib.sha256(token.encode()).hexdigest()
+    
+    @staticmethod
+    def _generate_token() -> str:
+        """Génère un token sécurisé."""
+        return secrets.token_urlsafe(32)
+    
+    async def create_token(
+        self,
+        client_name: str,
+        permissions: List[str] = None,
+        memory_ids: List[str] = None,
+        expires_in_days: Optional[int] = None
+    ) -> str:
+        """
+        Crée un nouveau token pour un client.
+        
+        Args:
+            client_name: Nom du client (ex: "quoteflow")
+            permissions: Liste des permissions (défaut: ["read", "write"])
+            memory_ids: IDs des mémoires autorisées (vide = toutes)
+            expires_in_days: Durée de validité en jours (None = pas d'expiration)
+            
+        Returns:
+            Le token en clair (à fournir au client, ne sera plus accessible ensuite)
+        """
+        if permissions is None:
+            permissions = ["read", "write"]
+        if memory_ids is None:
+            memory_ids = []
+        
+        # Générer le token
+        token = self._generate_token()
+        token_hash = self._hash_token(token)
+        
+        # Calculer l'expiration
+        expires_at = None
+        if expires_in_days:
+            expires_at = datetime.utcnow() + timedelta(days=expires_in_days)
+        
+        # Stocker dans Neo4j
+        async with self.graph.session() as session:
+            await session.run(
+                """
+                CREATE (t:Token {
+                    hash: $hash,
+                    client_name: $client_name,
+                    permissions: $permissions,
+                    memory_ids: $memory_ids,
+                    created_at: datetime(),
+                    expires_at: $expires_at,
+                    is_active: true
+                })
+                """,
+                hash=token_hash,
+                client_name=client_name,
+                permissions=permissions,
+                memory_ids=memory_ids,
+                expires_at=expires_at.isoformat() if expires_at else None
+            )
+        
+        print(f"🔑 [Auth] Token créé pour client '{client_name}'", file=sys.stderr)
+        
+        # Retourner le token en clair (seule fois où il est accessible)
+        return token
+    
+    async def validate_token(self, token: str) -> Optional[TokenInfo]:
+        """
+        Valide un token et retourne ses informations.
+        
+        Args:
+            token: Le token en clair
+            
+        Returns:
+            TokenInfo si valide, None sinon
+        """
+        token_hash = self._hash_token(token)
+        
+        async with self.graph.session() as session:
+            result = await session.run(
+                """
+                MATCH (t:Token {hash: $hash, is_active: true})
+                RETURN t
+                """,
+                hash=token_hash
+            )
+            
+            record = await result.single()
+            
+            if not record:
+                return None
+            
+            node = record["t"]
+            
+            # Vérifier l'expiration
+            expires_at = None
+            if node.get("expires_at"):
+                try:
+                    expires_at = datetime.fromisoformat(node["expires_at"])
+                    if expires_at < datetime.utcnow():
+                        print(f"⚠️ [Auth] Token expiré pour '{node['client_name']}'", file=sys.stderr)
+                        return None
+                except:
+                    pass
+            
+            return TokenInfo(
+                token_hash=node["hash"],
+                client_name=node["client_name"],
+                permissions=node.get("permissions", []),
+                memory_ids=node.get("memory_ids", []),
+                created_at=node["created_at"].to_native() if node.get("created_at") else datetime.utcnow(),
+                expires_at=expires_at,
+                is_active=node.get("is_active", True)
+            )
+    
+    async def revoke_token(self, token_hash: str) -> bool:
+        """
+        Révoque un token (le désactive).
+        
+        Args:
+            token_hash: Hash du token à révoquer
+            
+        Returns:
+            True si révoqué, False si non trouvé
+        """
+        async with self.graph.session() as session:
+            result = await session.run(
+                """
+                MATCH (t:Token {hash: $hash})
+                SET t.is_active = false, t.revoked_at = datetime()
+                RETURN t
+                """,
+                hash=token_hash
+            )
+            
+            record = await result.single()
+            
+            if record:
+                print(f"🚫 [Auth] Token révoqué: {token_hash[:8]}...", file=sys.stderr)
+                return True
+            return False
+    
+    async def list_tokens(self, include_revoked: bool = False) -> List[TokenInfo]:
+        """
+        Liste tous les tokens.
+        
+        Args:
+            include_revoked: Inclure les tokens révoqués
+            
+        Returns:
+            Liste des TokenInfo
+        """
+        async with self.graph.session() as session:
+            query = "MATCH (t:Token) "
+            if not include_revoked:
+                query += "WHERE t.is_active = true "
+            query += "RETURN t ORDER BY t.created_at DESC"
+            
+            result = await session.run(query)
+            
+            tokens = []
+            async for record in result:
+                node = record["t"]
+                
+                expires_at = None
+                if node.get("expires_at"):
+                    try:
+                        expires_at = datetime.fromisoformat(node["expires_at"])
+                    except:
+                        pass
+                
+                tokens.append(TokenInfo(
+                    token_hash=node["hash"],
+                    client_name=node["client_name"],
+                    permissions=node.get("permissions", []),
+                    memory_ids=node.get("memory_ids", []),
+                    created_at=node["created_at"].to_native() if node.get("created_at") else datetime.utcnow(),
+                    expires_at=expires_at,
+                    is_active=node.get("is_active", True)
+                ))
+            
+            return tokens
+    
+    async def check_permission(
+        self,
+        token_info: TokenInfo,
+        required_permission: str,
+        memory_id: Optional[str] = None
+    ) -> bool:
+        """
+        Vérifie si un token a la permission requise.
+        
+        Args:
+            token_info: Informations du token
+            required_permission: Permission requise ("read", "write", "admin")
+            memory_id: ID de la mémoire (pour vérifier l'accès)
+            
+        Returns:
+            True si autorisé
+        """
+        # Vérifier la permission
+        if required_permission not in token_info.permissions:
+            if "admin" not in token_info.permissions:  # admin a toutes les permissions
+                return False
+        
+        # Vérifier l'accès à la mémoire (si spécifié)
+        if memory_id and token_info.memory_ids:
+            if memory_id not in token_info.memory_ids:
+                return False
+        
+        return True
+
+
+# Singleton pour usage global
+_token_manager: Optional[TokenManager] = None
+
+
+def get_token_manager() -> TokenManager:
+    """Retourne l'instance singleton du TokenManager."""
+    global _token_manager
+    if _token_manager is None:
+        _token_manager = TokenManager()
+    return _token_manager

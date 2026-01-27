@@ -1,0 +1,68 @@
+# =============================================================================
+# MCP Memory Service - Git Ignore
+# =============================================================================
+
+# === Secrets & Configuration ===
+.env
+*.pem
+*.key
+
+# === Python ===
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# === Virtual Environments ===
+venv/
+ENV/
+env/
+.venv/
+
+# === IDE ===
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# === Testing ===
+.coverage
+htmlcov/
+.tox/
+.pytest_cache/
+.mypy_cache/
+
+# === macOS ===
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# === Logs ===
+*.log
+logs/
+
+# === Docker volumes (local dev) ===
+neo4j_data/
+neo4j_logs/
+
+# === Temporary files ===
+tmp/
+temp/
+*.tmp
