@@ -263,7 +263,12 @@ class GraphService:
         metadata: Optional[Dict[str, Any]] = None
     ) -> Document:
         """Ajoute un document au graphe."""
+        import json
+        
         async with self.session() as session:
+            # Neo4j n'accepte que les types primitifs, convertir metadata en JSON string
+            metadata_json = json.dumps(metadata) if metadata else "{}"
+            
             result = await session.run(
                 """
                 CREATE (d:Document {
@@ -273,7 +278,7 @@ class GraphService:
                     filename: $filename,
                     hash: $hash,
                     ingested_at: datetime(),
-                    metadata: $metadata
+                    metadata_json: $metadata_json
                 })
                 RETURN d
                 """,
@@ -282,7 +287,7 @@ class GraphService:
                 uri=uri,
                 filename=filename,
                 hash=doc_hash,
-                metadata=metadata or {}
+                metadata_json=metadata_json
             )
             
             record = await result.single()
@@ -435,23 +440,37 @@ class GraphService:
     async def search_entities(
         self,
         memory_id: str,
-        query: str,
+        search_query: str,
         limit: int = 10
     ) -> List[Dict[str, Any]]:
-        """Recherche des entités par nom (fuzzy matching)."""
+        """
+        Recherche des entités par nom (fuzzy matching).
+        
+        Tokenise la requête pour des résultats plus pertinents.
+        Ex: "Cloud Temple" trouvera "Cloud Temple SAS", "Contrat Cloud Temple", etc.
+        """
+        # Tokeniser la requête (mots individuels)
+        tokens = [t.strip() for t in search_query.lower().split() if len(t.strip()) > 2]
+        
+        if not tokens:
+            return []
+        
         async with self.session() as session:
+            # Recherche avec TOUS les tokens (AND)
             result = await session.run(
                 """
                 MATCH (e:Entity {memory_id: $memory_id})
-                WHERE toLower(e.name) CONTAINS toLower($query)
-                   OR toLower(e.description) CONTAINS toLower($query)
+                WHERE ALL(token IN $tokens WHERE 
+                    toLower(e.name) CONTAINS token 
+                    OR toLower(e.description) CONTAINS token
+                )
                 RETURN e.name as name, e.type as type, e.description as description,
                        e.mention_count as mentions
                 ORDER BY e.mention_count DESC
                 LIMIT $limit
                 """,
                 memory_id=memory_id,
-                query=query,
+                tokens=tokens,
                 limit=limit
             )
             
@@ -463,6 +482,33 @@ class GraphService:
                     "description": record["description"],
                     "mentions": record["mentions"]
                 })
+            
+            # Si aucun résultat avec AND, réessayer avec OR (plus permissif)
+            if not entities and len(tokens) > 1:
+                result = await session.run(
+                    """
+                    MATCH (e:Entity {memory_id: $memory_id})
+                    WHERE ANY(token IN $tokens WHERE 
+                        toLower(e.name) CONTAINS token 
+                        OR toLower(e.description) CONTAINS token
+                    )
+                    RETURN e.name as name, e.type as type, e.description as description,
+                           e.mention_count as mentions
+                    ORDER BY e.mention_count DESC
+                    LIMIT $limit
+                    """,
+                    memory_id=memory_id,
+                    tokens=tokens,
+                    limit=limit
+                )
+                
+                async for record in result:
+                    entities.append({
+                        "name": record["name"],
+                        "type": record["type"],
+                        "description": record["description"],
+                        "mentions": record["mentions"]
+                    })
             
             return entities
     
@@ -480,9 +526,11 @@ class GraphService:
         - Les documents qui la mentionnent
         - Les entités reliées (jusqu'à depth niveaux)
         - Les relations
+        
+        Note: Utilise une recherche tolérante si le nom exact n'est pas trouvé.
         """
         async with self.session() as session:
-            # Récupérer l'entité et ses voisins
+            # Essayer d'abord avec le nom exact
             result = await session.run(
                 """
                 MATCH (e:Entity {name: $name, memory_id: $memory_id})
@@ -496,6 +544,23 @@ class GraphService:
             )
             
             record = await result.single()
+            
+            # Si pas trouvé, essayer une recherche tolérante (CONTAINS)
+            if not record or not record["e"]:
+                result = await session.run(
+                    """
+                    MATCH (e:Entity {memory_id: $memory_id})
+                    WHERE toLower(e.name) CONTAINS toLower($name)
+                    OPTIONAL MATCH (d:Document)-[:MENTIONS]->(e)
+                    OPTIONAL MATCH (e)-[r:RELATED_TO]-(other:Entity)
+                    RETURN e, collect(DISTINCT d) as docs, 
+                           collect(DISTINCT {entity: other, relation: r}) as related
+                    LIMIT 1
+                    """,
+                    name=entity_name,
+                    memory_id=memory_id
+                )
+                record = await result.single()
             
             if not record or not record["e"]:
                 return GraphContext(

@@ -139,8 +139,8 @@ class ExtractorService:
                     }
                 ],
                 max_tokens=self._max_tokens,
-                temperature=self._temperature,
-                response_format={"type": "json_object"}  # Force JSON output
+                temperature=self._temperature
+                # Note: response_format non supporté par LLMaaS Cloud Temple
             )
             
             # Parser la réponse

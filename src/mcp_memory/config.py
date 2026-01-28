@@ -76,8 +76,10 @@ class Settings(BaseSettings):
     
     @property
     def llmaas_base_url(self) -> str:
-        """URL complète pour le client OpenAI."""
-        return f"{self.llmaas_api_url}/v1"
+        """URL complète pour le client OpenAI (compatible OpenAI)."""
+        # L'URL doit pointer vers le endpoint compatible OpenAI
+        # Cloud Temple: https://api.ai.cloud-temple.com (déjà avec /v1 intégré)
+        return self.llmaas_api_url
     
     @property
     def max_document_size_bytes(self) -> int:

@@ -363,7 +363,7 @@ async def memory_search(
     """
     try:
         # Recherche d'entités
-        entities = await get_graph().search_entities(memory_id, query, limit)
+        entities = await get_graph().search_entities(memory_id, search_query=query, limit=limit)
         
         # Pour chaque entité, récupérer un peu de contexte
         results = []

@@ -5,6 +5,7 @@ StorageService - Client S3 pour le stockage des documents.
 Gère le stockage et la récupération des documents originaux sur S3 Cloud Temple.
 """
 
+import os
 import hashlib
 import sys
 from typing import Optional, BinaryIO
@@ -29,29 +30,53 @@ class StorageService:
     """
     
     def __init__(self):
-        """Initialise le client S3."""
+        """Initialise les clients S3 avec signatures adaptées."""
         settings = get_settings()
         
-        # Configuration boto3 pour S3 compatible
-        self._config = Config(
-            signature_version='s3v4',
-            s3={
-                'addressing_style': 'path'  # Cloud Temple utilise path-style
-            },
-            retries={
-                'max_attempts': 3,
-                'mode': 'adaptive'
-            }
+        # Désactiver le calcul du checksum par le SDK
+        os.environ["AWS_REQUEST_CHECKSUM_CALCULATION"] = "when_required"
+        
+        # Région Dell ECS Cloud Temple
+        region = settings.s3_region_name if settings.s3_region_name else "fr1"
+        
+        # Client SigV2 pour PUT/GET/DELETE (opérations sur objets)
+        # Tests validés: PUT ✅, GET ✅, DELETE ✅
+        config_v2 = Config(
+            region_name=region,
+            signature_version='s3',  # SigV2 legacy
+            s3={'addressing_style': 'path'},
+            retries={'max_attempts': 3, 'mode': 'adaptive'}
         )
         
-        self._client = boto3.client(
+        self._client_v2 = boto3.client(
             's3',
             endpoint_url=settings.s3_endpoint_url,
             aws_access_key_id=settings.s3_access_key_id,
             aws_secret_access_key=settings.s3_secret_access_key,
-            region_name=settings.s3_region_name,
-            config=self._config
+            region_name=region,
+            config=config_v2
         )
+        
+        # Client SigV4 pour HEAD/LIST (opérations métadonnées)
+        # Utilisé en fallback si SigV2 échoue sur ces opérations
+        config_v4 = Config(
+            region_name=region,
+            signature_version='s3v4',
+            s3={'addressing_style': 'path', 'payload_signing_enabled': False},
+            retries={'max_attempts': 3, 'mode': 'adaptive'}
+        )
+        
+        self._client_v4 = boto3.client(
+            's3',
+            endpoint_url=settings.s3_endpoint_url,
+            aws_access_key_id=settings.s3_access_key_id,
+            aws_secret_access_key=settings.s3_secret_access_key,
+            region_name=region,
+            config=config_v4
+        )
+        
+        # Client par défaut (SigV2 pour compatibilité maximale)
+        self._client = self._client_v2
         
         self._bucket = settings.s3_bucket_name
         self._endpoint_url = settings.s3_endpoint_url
@@ -263,27 +288,43 @@ class StorageService:
     
     async def test_connection(self) -> dict:
         """
-        Teste la connexion S3.
+        Teste la connexion S3 en utilisant PUT/GET (compatible SigV2).
         
         Returns:
             dict avec status, bucket, message
         """
+        test_key = "_health_check/test.txt"
+        test_content = b"health check"
+        
         try:
-            # Test 1: Vérifier que le bucket existe
-            self._client.head_bucket(Bucket=self._bucket)
-            
-            # Test 2: Lister quelques objets
-            response = self._client.list_objects_v2(
+            # Test avec PUT/GET qui fonctionnent avec SigV2
+            self._client_v2.put_object(
                 Bucket=self._bucket,
-                MaxKeys=1
+                Key=test_key,
+                Body=test_content
             )
             
-            return {
-                "status": "ok",
-                "bucket": self._bucket,
-                "endpoint": self._endpoint_url,
-                "message": "Connexion S3 réussie"
-            }
+            # Vérifier qu'on peut lire
+            response = self._client_v2.get_object(Bucket=self._bucket, Key=test_key)
+            content = response['Body'].read()
+            
+            # Nettoyer
+            self._client_v2.delete_object(Bucket=self._bucket, Key=test_key)
+            
+            if content == test_content:
+                return {
+                    "status": "ok",
+                    "bucket": self._bucket,
+                    "endpoint": self._endpoint_url,
+                    "message": "Connexion S3 réussie (PUT/GET/DELETE validés)"
+                }
+            else:
+                return {
+                    "status": "warning",
+                    "bucket": self._bucket,
+                    "endpoint": self._endpoint_url,
+                    "message": "Connexion OK mais contenu incohérent"
+                }
             
         except NoCredentialsError:
             return {
@@ -294,11 +335,12 @@ class StorageService:
             }
         except ClientError as e:
             error_code = e.response.get('Error', {}).get('Code', 'Unknown')
+            error_msg = e.response.get('Error', {}).get('Message', str(e))
             return {
                 "status": "error",
                 "bucket": self._bucket,
                 "endpoint": self._endpoint_url,
-                "message": f"Erreur S3: {error_code}"
+                "message": f"Erreur S3 [{error_code}]: {error_msg}"
             }
     
     def _parse_key(self, key_or_uri: str) -> str:
