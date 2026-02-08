@@ -214,6 +214,11 @@ class StaticFilesMiddleware:
             await self._serve_file(send, "graph.html", "text/html")
             return
         
+        # Health check
+        if path in ("/health", "/healthz", "/ready"):
+            await self._api_health(send)
+            return
+        
         # API REST - Liste des mémoires
         if path == "/api/memories" and method == "GET":
             await self._api_memories(send)
@@ -228,6 +233,37 @@ class StaticFilesMiddleware:
         
         # Passer au handler suivant
         await self.app(scope, receive, send)
+    
+    async def _api_health(self, send):
+        """Retourne l'état de santé du serveur."""
+        import json
+        from datetime import datetime
+        try:
+            # Test rapide Neo4j via une requête simple
+            neo4j_ok = False
+            neo4j_msg = "Non testé"
+            try:
+                test = await self.graph_service.test_connection()
+                neo4j_ok = test.get("status") == "ok"
+                neo4j_msg = test.get("message", "OK")
+            except Exception as e:
+                neo4j_msg = str(e)
+            
+            data = {
+                "status": "healthy" if neo4j_ok else "degraded",
+                "version": "0.5.0",
+                "timestamp": datetime.utcnow().isoformat(),
+                "services": {
+                    "neo4j": {"status": "ok" if neo4j_ok else "error", "message": neo4j_msg}
+                }
+            }
+            await self._send_json(send, data)
+        except Exception as e:
+            await self._send_json(send, {
+                "status": "error",
+                "version": "0.5.0",
+                "message": str(e)
+            }, 500)
     
     async def _api_memories(self, send):
         """Retourne la liste des mémoires en JSON."""

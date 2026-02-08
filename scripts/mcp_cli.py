@@ -231,7 +231,7 @@ def memory_list(ctx):
 @click.argument('memory_id')
 @click.option('--name', '-n', default=None, help='Nom de la mémoire')
 @click.option('--description', '-d', default=None, help='Description')
-@click.option('--ontology', '-o', default='default', help='Ontologie à utiliser')
+@click.option('--ontology', '-o', required=True, help='Ontologie à utiliser (OBLIGATOIRE: legal, cloud, etc.)')
 @click.pass_context
 def memory_create(ctx, memory_id, name, description, ontology):
     """➕ Créer une nouvelle mémoire."""
@@ -419,15 +419,36 @@ def document_ingest(ctx, memory_id, file_path):
                 })
             
             if result.get('status') == 'ok':
-                entities = result.get('entities_extracted', 0)
-                relations = result.get('relations_extracted', 0)
                 doc_id = result.get('document_id', '?')
+                e_new = result.get('entities_created', 0)
+                e_merged = result.get('entities_merged', 0)
+                r_new = result.get('relations_created', 0)
+                r_merged = result.get('relations_merged', 0)
+                
                 console.print(f"[green]✅ Document ingéré![/green]")
                 console.print(f"   ID: [cyan]{doc_id}[/cyan]")
-                console.print(f"   Entités extraites: [cyan]{entities}[/cyan]")
-                console.print(f"   Relations créées: [cyan]{relations}[/cyan]")
+                console.print(f"   Entités: [cyan]{e_new}[/cyan] nouvelles + [yellow]{e_merged}[/yellow] fusionnées = [bold]{e_new + e_merged}[/bold]")
+                console.print(f"   Relations: [cyan]{r_new}[/cyan] nouvelles + [yellow]{r_merged}[/yellow] fusionnées = [bold]{r_new + r_merged}[/bold]")
+                
+                # Types d'entités
+                entity_types = result.get('entity_types', {})
+                if entity_types:
+                    types_str = ", ".join(f"[magenta]{t}[/magenta]:{c}" for t, c in sorted(entity_types.items(), key=lambda x: -x[1]))
+                    console.print(f"   Types entités: {types_str}")
+                
+                # Types de relations
+                relation_types = result.get('relation_types', {})
+                if relation_types:
+                    rels_str = ", ".join(f"[blue]{t}[/blue]:{c}" for t, c in sorted(relation_types.items(), key=lambda x: -x[1]))
+                    console.print(f"   Types relations: {rels_str}")
+                
+                # Sujets clés
+                topics = result.get('key_topics', [])
+                if topics:
+                    console.print(f"   Sujets: [dim]{', '.join(topics[:5])}[/dim]")
+                
                 if result.get('summary'):
-                    console.print(f"   Résumé: [dim]{result.get('summary')[:100]}...[/dim]")
+                    console.print(f"   Résumé: [dim]{result.get('summary')[:120]}...[/dim]")
             elif result.get('status') == 'already_exists':
                 console.print(f"[yellow]⚠️ Document déjà ingéré: {result.get('document_id')}[/yellow]")
             else:
@@ -609,15 +630,13 @@ def list_ontologies(ctx):
                 table.add_column("Types d'entités", style="dim")
                 
                 for o in ontologies:
-                    types = o.get('entity_types', [])[:5]
-                    types_str = ", ".join(types)
-                    if len(o.get('entity_types', [])) > 5:
-                        types_str += f" (+{len(o.get('entity_types', [])) - 5})"
+                    entity_count = o.get('entity_types_count', 0)
+                    relation_count = o.get('relation_types_count', 0)
                     
                     table.add_row(
                         o.get('name', ''),
                         o.get('description', '')[:50],
-                        types_str
+                        f"{entity_count} types, {relation_count} relations"
                     )
                 
                 console.print(table)

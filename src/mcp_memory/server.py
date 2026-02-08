@@ -91,19 +91,19 @@ def get_tokens():
 async def memory_create(
     memory_id: str,
     name: str,
-    description: Optional[str] = None,
-    ontology: str = "default"
+    ontology: str,
+    description: Optional[str] = None
 ) -> dict:
     """
     Crée une nouvelle mémoire (namespace isolé).
     
-    L'ontologie est copiée sur S3 pour persistance et versioning.
+    L'ontologie est OBLIGATOIRE et copiée sur S3 pour persistance et versioning.
     
     Args:
         memory_id: Identifiant unique (ex: "quoteflow-legal")
         name: Nom lisible de la mémoire
+        ontology: Nom de l'ontologie à utiliser (OBLIGATOIRE: legal, cloud, managed-services, technical)
         description: Description optionnelle
-        ontology: Nom de l'ontologie à utiliser (default, legal, cloud, managed-services, technical)
         
     Returns:
         Informations sur la mémoire créée
@@ -285,6 +285,13 @@ async def memory_ingest(
                 "message": "Document déjà ingéré (utilisez force=true pour réingérer)"
             }
         
+        # Si force=True et document existant, supprimer l'ancien d'abord
+        if existing and force:
+            print(f"🔄 [Ingest] Force: suppression de l'ancien document {existing.id}", file=sys.stderr)
+            delete_result = await get_graph().delete_document(memory_id, existing.id)
+            print(f"🔄 [Ingest] Ancien supprimé: {delete_result.get('entities_deleted', 0)} entités orphelines, "
+                  f"{delete_result.get('relations_deleted', 0)} relations", file=sys.stderr)
+        
         # Upload vers S3
         s3_result = await get_storage().upload_document(
             memory_id=memory_id,
@@ -304,8 +311,13 @@ async def memory_ingest(
             }
         
         # Extraction des entités/relations via LLM avec l'ontologie de la mémoire
-        ontology_name = memory.ontology if memory.ontology else "default"
-        extraction = await get_extractor().extract_with_ontology(text, ontology_name)
+        if not memory.ontology:
+            return {
+                "status": "error",
+                "message": f"La mémoire '{memory_id}' n'a pas d'ontologie définie. "
+                           f"Recréez-la avec une ontologie valide."
+            }
+        extraction = await get_extractor().extract_with_ontology(text, memory.ontology)
         
         # Créer le document dans le graphe
         doc_id = str(uuid.uuid4())
@@ -325,6 +337,11 @@ async def memory_ingest(
             extraction=extraction
         )
         
+        # Compter les types de relations
+        from collections import Counter
+        relation_types = Counter(r.type for r in extraction.relations)
+        entity_types = Counter(e.type.value if hasattr(e.type, 'value') else str(e.type) for e in extraction.entities)
+        
         return {
             "status": "ok",
             "document_id": doc_id,
@@ -333,6 +350,12 @@ async def memory_ingest(
             "size_bytes": s3_result["size_bytes"],
             "entities_extracted": len(extraction.entities),
             "relations_extracted": len(extraction.relations),
+            "entities_created": graph_result.get("entities_created", 0),
+            "entities_merged": graph_result.get("entities_merged", 0),
+            "relations_created": graph_result.get("relations_created", 0),
+            "relations_merged": graph_result.get("relations_merged", 0),
+            "entity_types": dict(entity_types),
+            "relation_types": dict(relation_types),
             "summary": extraction.summary,
             "key_topics": extraction.key_topics
         }
@@ -885,8 +908,8 @@ async def ontology_list() -> dict:
     """
     Liste toutes les ontologies disponibles.
     
-    Les ontologies définissent les règles d'extraction pour différents domaines:
-    - default: Extraction générique
+    Les ontologies définissent les règles d'extraction pour différents domaines.
+    Chaque mémoire DOIT avoir une ontologie. Exemples:
     - legal: Documents juridiques et contractuels
     - cloud: Infrastructure cloud et certifications
     - managed-services: Infogérance et services managés

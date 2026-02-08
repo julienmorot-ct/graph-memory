@@ -10,6 +10,7 @@ import hashlib
 import sys
 from typing import Optional, BinaryIO
 from datetime import datetime, timedelta
+from urllib.parse import quote as url_quote
 import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError, NoCredentialsError
@@ -126,17 +127,17 @@ class StorageService:
         if not content_type:
             content_type = self._guess_content_type(filename)
         
-        # Métadonnées S3
+        # Métadonnées S3 - doivent être ASCII uniquement
+        # On URL-encode les valeurs contenant des caractères non-ASCII
         s3_metadata = {
             'memory_id': memory_id,
-            'original_filename': filename,
+            'original_filename': self._sanitize_metadata_value(filename),
             'doc_hash': doc_hash,
             'uploaded_at': datetime.utcnow().isoformat()
         }
         if metadata:
-            # Les metadata S3 doivent être des strings
             for k, v in metadata.items():
-                s3_metadata[k] = str(v)
+                s3_metadata[k] = self._sanitize_metadata_value(str(v))
         
         try:
             self._client.put_object(
@@ -352,6 +353,20 @@ class StorageService:
                 return parts[1]
             raise ValueError(f"URI S3 invalide: {key_or_uri}")
         return key_or_uri
+    
+    @staticmethod
+    def _sanitize_metadata_value(value: str) -> str:
+        """
+        Sanitise une valeur pour les métadonnées S3 (ASCII uniquement).
+        
+        URL-encode les caractères non-ASCII pour compatibilité S3/Dell ECS.
+        Ex: "Conditions Générales" → "Conditions%20G%C3%A9n%C3%A9rales"
+        """
+        try:
+            value.encode('ascii')
+            return value  # Déjà ASCII, pas besoin d'encoder
+        except UnicodeEncodeError:
+            return url_quote(value, safe='')
     
     @staticmethod
     def _guess_content_type(filename: str) -> str:

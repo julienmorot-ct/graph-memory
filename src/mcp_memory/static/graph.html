@@ -214,36 +214,121 @@
         
         .node-details {
             position: absolute;
-            bottom: 20px;
+            top: 20px;
             right: 20px;
-            background: rgba(22, 33, 62, 0.95);
-            padding: 1rem;
-            border-radius: 8px;
-            max-width: 300px;
+            background: rgba(22, 33, 62, 0.97);
+            padding: 1.2rem;
+            border-radius: 10px;
+            width: 360px;
+            max-height: calc(100vh - 120px);
+            overflow-y: auto;
             display: none;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+            box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+            border: 1px solid rgba(102,126,234,0.3);
         }
         
         .node-details.visible {
             display: block;
         }
         
+        .node-details-close {
+            position: absolute;
+            top: 8px;
+            right: 12px;
+            background: none;
+            border: none;
+            color: #888;
+            font-size: 1.2rem;
+            cursor: pointer;
+            padding: 4px;
+        }
+        
+        .node-details-close:hover {
+            color: #fff;
+        }
+        
         .node-details h4 {
-            color: #667eea;
+            color: #fff;
             margin-bottom: 0.5rem;
+            font-size: 1.05rem;
+            padding-right: 24px;
         }
         
         .node-details .type-badge {
             display: inline-block;
-            padding: 0.2rem 0.5rem;
+            padding: 0.2rem 0.6rem;
             border-radius: 4px;
             font-size: 0.75rem;
-            margin-bottom: 0.5rem;
+            font-weight: 600;
+            margin-bottom: 0.8rem;
+            color: #fff;
+        }
+        
+        .node-details .detail-section {
+            margin-bottom: 0.8rem;
+            padding-bottom: 0.8rem;
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+        }
+        
+        .node-details .detail-section:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+        }
+        
+        .node-details .detail-label {
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #667eea;
+            margin-bottom: 0.3rem;
+            font-weight: 600;
         }
         
         .node-details p {
             font-size: 0.85rem;
-            color: #aaa;
+            color: #ccc;
+            line-height: 1.4;
+        }
+        
+        .node-details .doc-tag {
+            display: inline-block;
+            padding: 0.2rem 0.5rem;
+            margin: 0.15rem;
+            border-radius: 4px;
+            font-size: 0.72rem;
+            background: rgba(231, 76, 60, 0.2);
+            color: #e74c3c;
+            border: 1px solid rgba(231, 76, 60, 0.3);
+        }
+        
+        .node-details .relation-item {
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            padding: 0.25rem 0;
+            font-size: 0.8rem;
+            color: #bbb;
+        }
+        
+        .node-details .relation-type {
+            font-size: 0.7rem;
+            padding: 0.1rem 0.4rem;
+            border-radius: 3px;
+            background: rgba(102,126,234,0.2);
+            color: #667eea;
+            font-weight: 600;
+            white-space: nowrap;
+        }
+        
+        .node-details .mentions-badge {
+            display: inline-block;
+            padding: 0.15rem 0.4rem;
+            border-radius: 3px;
+            font-size: 0.7rem;
+            background: rgba(76,175,80,0.2);
+            color: #4CAF50;
+            font-weight: 600;
+            margin-left: 0.3rem;
         }
         
         .error {
@@ -379,6 +464,7 @@
                 <label for="showLabels">Labels arêtes</label>
             </div>
             <button class="btn-settings" id="settingsBtn">⚙️ Paramètres</button>
+            <button class="btn-settings" id="fitBtn" style="background:#2ecc71 !important">🔍 Zoom to fit</button>
         </div>
     </div>
     
@@ -443,6 +529,19 @@
             <h3>🎨 Légende</h3>
             <div class="legend" id="legend"></div>
             
+            <h3>🔍 Recherche</h3>
+            <div style="margin-bottom:1rem">
+                <input type="text" id="searchInput" placeholder="Rechercher une entité..." 
+                    style="width:100%;padding:0.5rem;border-radius:6px;border:1px solid #444;background:#0f0f23;color:#eee;font-size:0.85rem">
+            </div>
+            
+            <h3>🏷️ Filtre par type</h3>
+            <div style="margin-bottom:1rem">
+                <select id="typeFilter" style="width:100%;padding:0.4rem;border-radius:6px;border:1px solid #444;background:#0f0f23;color:#eee;font-size:0.85rem">
+                    <option value="">Tous les types</option>
+                </select>
+            </div>
+            
             <h3>📋 Entités</h3>
             <div class="entity-list" id="entityList"></div>
         </div>
@@ -454,25 +553,45 @@
                 <p>Chargement du graphe...</p>
             </div>
             <div class="node-details" id="nodeDetails">
-                <h4 id="detailName">-</h4>
-                <span class="type-badge" id="detailType">-</span>
-                <p id="detailDesc">-</p>
+                <button class="node-details-close" onclick="hideNodeDetails()">✕</button>
+                <div id="detailContent"></div>
             </div>
         </div>
     </div>
     
     <script>
-        // Couleurs par type d'entité
+        // Couleurs par type d'entité — Complètes pour toutes les ontologies
         const TYPE_COLORS = {
+            // Organisations & Personnes
             'Organization': '#3498db',
             'Person': '#2ecc71',
+            'Party': '#2980b9',
             'LegalRepresentative': '#27ae60',
-            'Certification': '#9b59b6',
-            'Amount': '#f1c40f',
-            'Duration': '#e67e22',
-            'SLA': '#e74c3c',
+            // Contractuel
             'Clause': '#1abc9c',
-            'ContractType': '#34495e',
+            'Obligation': '#16a085',
+            'ContractType': '#8e44ad',
+            'Annex': '#6c3483',
+            'Reference': '#5b2c6f',
+            // Valeurs & Métriques
+            'Amount': '#f39c12',
+            'Duration': '#e67e22',
+            'Date': '#d35400',
+            'SLA': '#e74c3c',
+            'Metric': '#c0392b',
+            // Certifications & Conformité
+            'Certification': '#9b59b6',
+            'Regulation': '#8e44ad',
+            // Lieux & Juridictions
+            'Location': '#1abc9c',
+            'Jurisdiction': '#17a589',
+            // Technique
+            'Concept': '#3498db',
+            'Product': '#2e86c1',
+            'Service': '#2874a6',
+            // Documents
+            'Document': '#e74c3c',
+            // Autres
             'Other': '#95a5a6',
             'Unknown': '#7f8c8d'
         };
@@ -559,59 +678,101 @@
             docSection.appendChild(list);
         }
         
-        // Rendre le graphe avec vis.js
+        // Couleurs des arêtes par type de relation
+        const EDGE_COLORS = {
+            'RELATED_TO': '#667eea',
+            'DEFINES': '#e74c3c',
+            'SIGNED_BY': '#2ecc71',
+            'REPRESENTS': '#27ae60',
+            'MENTIONS': '#555',
+            'PARTY_TO': '#3498db',
+            'INCLUDES_ANNEX': '#8e44ad',
+            'HAS_DURATION': '#e67e22',
+            'HAS_AMOUNT': '#f39c12',
+            'HAS_SLA': '#e74c3c',
+            'HAS_CERTIFICATION': '#9b59b6',
+            'GUARANTEES': '#9b59b6',
+            'GOVERNED_BY': '#1abc9c',
+            'OBLIGATES': '#c0392b',
+            'REQUIRES_CERTIFICATION': '#8e44ad',
+            'AMENDS': '#d35400',
+            'SUPERSEDES': '#c0392b',
+            'LOCATED_AT': '#1abc9c',
+            'JURISDICTION': '#17a589',
+            'EFFECTIVE_DATE': '#d35400',
+            'CERTIFIES': '#9b59b6',
+            'REFERENCES': '#95a5a6',
+            'BELONGS_TO': '#2980b9',
+            'CREATED_BY': '#2ecc71',
+            'CONTAINS': '#34495e',
+            'HAS_VALUE': '#f39c12'
+        };
+        
+        // Rendre le graphe avec vis.js — Fonction unifiée utilisant currentParams
         function renderGraph(nodes, edges) {
             const container = document.getElementById('graph');
             const showMentions = document.getElementById('showMentions').checked;
             const showLabels = document.getElementById('showLabels').checked;
             
             // Filtrer les nœuds documents si MENTIONS masqués
-            let filteredNodes = nodes;
-            if (!showMentions) {
-                filteredNodes = nodes.filter(n => n.node_type !== 'document');
-            }
+            let filteredNodes = showMentions ? nodes : nodes.filter(n => n.node_type !== 'document');
             
             // Filtrer les arêtes MENTIONS si décoché
-            let filteredEdges = edges;
-            if (!showMentions) {
-                filteredEdges = edges.filter(e => e.type !== 'MENTIONS');
-            }
+            let filteredEdges = showMentions ? edges : edges.filter(e => e.type !== 'MENTIONS');
+            
+            // Longueur max des labels : 40 chars (au lieu de 17)
+            const maxLabel = 40;
             
             // Préparer les données pour vis.js
-            const visNodes = filteredNodes.map(n => ({
-                id: n.id,
-                label: n.label.length > 20 ? n.label.substring(0, 17) + '...' : n.label,
-                title: `${n.label}\nType: ${n.type}\n${n.description || ''}`,
-                color: {
-                    background: TYPE_COLORS[n.type] || TYPE_COLORS['Unknown'],
-                    border: '#333',
-                    highlight: { background: '#fff', border: TYPE_COLORS[n.type] || '#333' }
-                },
-                font: { color: '#fff', size: 11 },
-                size: n.node_type === 'document' ? 30 : 20 + Math.min(n.mentions || 0, 10) * 2,
-                shape: n.node_type === 'document' ? 'square' : 'dot',
-                data: n
-            }));
-            
-            // Couleurs des arêtes par type
-            const EDGE_COLORS = {
-                'RELATED_TO': '#667eea',
-                'DEFINES': '#e74c3c',
-                'SIGNED_BY': '#2ecc71',
-                'MENTIONS': '#555'
-            };
+            const visNodes = filteredNodes.map(n => {
+                const label = n.label.length > maxLabel ? n.label.substring(0, maxLabel - 1) + '…' : n.label;
+                const bgColor = TYPE_COLORS[n.type] || TYPE_COLORS['Unknown'];
+                const baseSize = currentParams.nodeSize;
+                
+                return {
+                    id: n.id,
+                    label: label,
+                    title: `${n.label}\n━━━━━━━━━━━━━━\nType: ${n.type}\n${n.description || ''}`,
+                    color: {
+                        background: bgColor,
+                        border: bgColor,
+                        highlight: { background: '#fff', border: bgColor },
+                        hover: { background: bgColor, border: '#fff' }
+                    },
+                    font: { 
+                        color: '#fff', 
+                        size: currentParams.fontSize,
+                        face: 'Arial',
+                        strokeWidth: 2,
+                        strokeColor: '#000'
+                    },
+                    size: n.node_type === 'document' ? baseSize * 1.5 : baseSize + Math.min(n.mentions || 0, 10) * 2,
+                    shape: n.node_type === 'document' ? 'square' : 'dot',
+                    data: n
+                };
+            });
             
             const visEdges = filteredEdges.map((e, i) => ({
                 id: i,
                 from: e.from,
                 to: e.to,
-                label: showLabels ? e.type : '',
+                label: showLabels ? (e.type || '').replace(/_/g, ' ') : '',
                 title: `${e.type}\n${e.description || ''}`,
                 arrows: { to: { enabled: true, scaleFactor: 0.5 } },
-                color: { color: EDGE_COLORS[e.type] || '#555', highlight: '#fff' },
-                font: { color: '#888', size: 8, strokeWidth: 0 },
+                color: { 
+                    color: EDGE_COLORS[e.type] || '#556', 
+                    highlight: '#fff',
+                    hover: '#aaa'
+                },
+                font: { 
+                    color: '#bbb',
+                    size: Math.max(currentParams.fontSize - 2, 8),
+                    strokeWidth: 2,
+                    strokeColor: '#000',
+                    align: 'top'
+                },
                 width: e.type === 'MENTIONS' ? 1 : 2,
-                smooth: { type: 'continuous', roundness: 0.3 }
+                smooth: { type: 'continuous', roundness: 0.2 }
             }));
             
             const data = {
@@ -623,23 +784,28 @@
                 physics: {
                     enabled: true,
                     barnesHut: {
-                        gravitationalConstant: -15000,
-                        centralGravity: 0.05,
-                        springLength: 400,
-                        springConstant: 0.01,
-                        damping: 0.5
+                        gravitationalConstant: -currentParams.gravity,
+                        centralGravity: 0.1,
+                        springLength: currentParams.springLength,
+                        springConstant: 0.02,
+                        damping: 0.9,
+                        avoidOverlap: 0.5
                     },
-                    stabilization: { iterations: 200 }
+                    stabilization: { iterations: 300, fit: true },
+                    maxVelocity: 30,
+                    minVelocity: 0.75
                 },
                 interaction: {
                     hover: true,
                     tooltipDelay: 100,
                     zoomView: true,
-                    dragView: true
+                    dragView: true,
+                    navigationButtons: true,
+                    keyboard: true
                 },
                 nodes: {
                     borderWidth: 2,
-                    shadow: true
+                    shadow: { enabled: true, size: 5 }
                 },
                 edges: {
                     width: 1.5,
@@ -653,12 +819,31 @@
             
             network = new vis.Network(container, data, options);
             
-            // Événements
+            // Auto-fit après stabilisation puis GELER la physique
+            network.on('stabilizationIterationsDone', function() {
+                network.fit({ animation: { duration: 500, easingFunction: 'easeInOutQuad' } });
+                // Désactiver la physique pour que le graphe ne bouge plus
+                setTimeout(() => {
+                    network.setOptions({ physics: { enabled: false } });
+                }, 600);
+            });
+            
+            // Réactiver la physique temporairement quand on drag un nœud
+            network.on('dragStart', function() {
+                network.setOptions({ physics: { enabled: true, stabilization: false } });
+            });
+            network.on('dragEnd', function() {
+                setTimeout(() => {
+                    network.setOptions({ physics: { enabled: false } });
+                }, 1000);
+            });
+            
+            // Événements clic — panneau détaillé riche
             network.on('click', function(params) {
                 if (params.nodes.length > 0) {
                     const nodeId = params.nodes[0];
                     const node = currentData.nodes.find(n => n.id === nodeId);
-                    showNodeDetails(node);
+                    if (node) showNodeDetails(node, currentData);
                 } else {
                     hideNodeDetails();
                 }
@@ -668,16 +853,68 @@
             updateStats(filteredNodes.length, filteredEdges.length);
         }
         
-        // Afficher les détails d'un nœud
-        function showNodeDetails(node) {
+        // Afficher les détails riches d'un nœud
+        function showNodeDetails(node, graphData) {
             const details = document.getElementById('nodeDetails');
-            document.getElementById('detailName').textContent = node.label;
+            const content = document.getElementById('detailContent');
+            const color = TYPE_COLORS[node.type] || TYPE_COLORS['Unknown'];
             
-            const typeBadge = document.getElementById('detailType');
-            typeBadge.textContent = node.type;
-            typeBadge.style.background = TYPE_COLORS[node.type] || TYPE_COLORS['Unknown'];
+            // Trouver les relations connectées à ce nœud
+            const data = graphData || currentData;
+            const connectedEdges = data ? data.edges.filter(e => 
+                (e.from === node.id || e.to === node.id) && e.type !== 'MENTIONS'
+            ) : [];
             
-            document.getElementById('detailDesc').textContent = node.description || 'Aucune description';
+            // Trouver les noms des documents sources
+            const sourceDocs = (node.source_docs || []).map(docId => {
+                const doc = data ? data.documents.find(d => d.id === docId) : null;
+                return doc ? doc.filename : docId;
+            });
+            
+            // Construire le HTML riche
+            let html = `
+                <h4>${node.label}</h4>
+                <span class="type-badge" style="background:${color}">${node.type}</span>
+                ${node.mentions > 1 ? `<span class="mentions-badge">×${node.mentions} mentions</span>` : ''}
+            `;
+            
+            // Section description
+            if (node.description) {
+                // Séparer les descriptions multi-documents (séparées par |)
+                const descriptions = node.description.split(' | ');
+                html += `<div class="detail-section">
+                    <div class="detail-label">📝 Description</div>
+                    ${descriptions.map(d => `<p>${d.trim()}</p>`).join('')}
+                </div>`;
+            }
+            
+            // Section documents sources
+            if (sourceDocs.length > 0) {
+                html += `<div class="detail-section">
+                    <div class="detail-label">📄 Documents sources (${sourceDocs.length})</div>
+                    <div>${sourceDocs.map(d => `<span class="doc-tag">📄 ${d}</span>`).join('')}</div>
+                </div>`;
+            }
+            
+            // Section relations
+            if (connectedEdges.length > 0) {
+                html += `<div class="detail-section">
+                    <div class="detail-label">🔗 Relations (${connectedEdges.length})</div>`;
+                connectedEdges.slice(0, 15).forEach(e => {
+                    const otherNode = e.from === node.id ? e.to : e.from;
+                    const direction = e.from === node.id ? '→' : '←';
+                    html += `<div class="relation-item" style="cursor:pointer" onclick="focusNode('${otherNode}')">
+                        <span class="relation-type">${(e.type || 'RELATED').replace(/_/g, ' ')}</span>
+                        <span>${direction} ${otherNode.length > 30 ? otherNode.substring(0,28) + '…' : otherNode}</span>
+                    </div>`;
+                });
+                if (connectedEdges.length > 15) {
+                    html += `<p style="font-size:0.75rem;color:#888">… et ${connectedEdges.length - 15} autres</p>`;
+                }
+                html += `</div>`;
+            }
+            
+            content.innerHTML = html;
             details.classList.add('visible');
         }
         
@@ -807,107 +1044,100 @@
             // Fermer la modale
             document.getElementById('settingsModal').classList.remove('visible');
             
-            // Re-render si données chargées
+            // Re-render avec la fonction unifiée
             if (currentData) {
-                renderGraphWithParams(currentData.nodes, currentData.edges);
+                renderGraph(currentData.nodes, currentData.edges);
             }
         });
         
-        // Fonction de rendu avec paramètres personnalisés
-        function renderGraphWithParams(nodes, edges) {
-            const container = document.getElementById('graph');
-            const showMentions = document.getElementById('showMentions').checked;
-            const showLabels = document.getElementById('showLabels').checked;
+        // === ZOOM TO FIT ===
+        document.getElementById('fitBtn').addEventListener('click', () => {
+            if (network) {
+                network.fit({ animation: { duration: 500, easingFunction: 'easeInOutQuad' } });
+            }
+        });
+        
+        // === RECHERCHE D'ENTITÉS ===
+        document.getElementById('searchInput').addEventListener('input', function() {
+            const query = this.value.toLowerCase().trim();
+            if (!currentData || !network) return;
             
-            let filteredNodes = showMentions ? nodes : nodes.filter(n => n.node_type !== 'document');
-            let filteredEdges = showMentions ? edges : edges.filter(e => e.type !== 'MENTIONS');
+            if (!query) {
+                // Réinitialiser : tout désélectionner
+                network.unselectAll();
+                updateEntityList(currentData.nodes);
+                return;
+            }
             
-            const visNodes = filteredNodes.map(n => ({
-                id: n.id,
-                label: n.label.length > 20 ? n.label.substring(0, 17) + '...' : n.label,
-                title: `${n.label}\nType: ${n.type}\n${n.description || ''}`,
-                color: {
-                    background: TYPE_COLORS[n.type] || TYPE_COLORS['Unknown'],
-                    border: '#333',
-                    highlight: { background: '#fff', border: TYPE_COLORS[n.type] || '#333' }
-                },
-                font: { color: '#fff', size: currentParams.fontSize },
-                size: n.node_type === 'document' ? currentParams.nodeSize * 1.5 : currentParams.nodeSize,
-                shape: n.node_type === 'document' ? 'square' : 'dot',
-                data: n
-            }));
+            // Filtrer les entités correspondantes
+            const matches = currentData.nodes.filter(n => 
+                n.label.toLowerCase().includes(query) || 
+                (n.description || '').toLowerCase().includes(query) ||
+                (n.type || '').toLowerCase().includes(query)
+            );
             
-            const EDGE_COLORS = {
-                'RELATED_TO': '#667eea',
-                'DEFINES': '#e74c3c',
-                'SIGNED_BY': '#2ecc71',
-                'MENTIONS': '#555'
-            };
+            // Mettre à jour la liste sidebar
+            const list = document.getElementById('entityList');
+            list.innerHTML = matches.slice(0, 50).map(n => `
+                <div class="entity-item" onclick="focusNode('${n.id}')" style="border-left: 3px solid ${TYPE_COLORS[n.type] || TYPE_COLORS['Unknown']}">
+                    ${n.label.substring(0, 40)}${n.label.length > 40 ? '…' : ''}
+                    <div class="type">${n.type}</div>
+                </div>
+            `).join('');
             
-            const visEdges = filteredEdges.map((e, i) => ({
-                id: i,
-                from: e.from,
-                to: e.to,
-                label: showLabels ? e.type : '',
-                title: `${e.type}\n${e.description || ''}`,
-                arrows: { to: { enabled: true, scaleFactor: 0.5 } },
-                color: { color: EDGE_COLORS[e.type] || '#555', highlight: '#fff' },
-                font: { color: '#888', size: 8, strokeWidth: 0 },
-                width: e.type === 'MENTIONS' ? 1 : 2,
-                smooth: { type: 'continuous', roundness: 0.3 }
-            }));
-            
-            const data = {
-                nodes: new vis.DataSet(visNodes),
-                edges: new vis.DataSet(visEdges)
-            };
-            
-            const options = {
-                physics: {
-                    enabled: true,
-                    barnesHut: {
-                        gravitationalConstant: -currentParams.gravity,
-                        centralGravity: 0.05,
-                        springLength: currentParams.springLength,
-                        springConstant: 0.01,
-                        damping: 0.5
-                    },
-                    stabilization: { iterations: 200 }
-                },
-                interaction: {
-                    hover: true,
-                    tooltipDelay: 100,
-                    zoomView: true,
-                    dragView: true
-                },
-                nodes: {
-                    borderWidth: 2,
-                    shadow: true
-                },
-                edges: {
-                    width: 1.5,
-                    selectionWidth: 3,
-                    shadow: false
-                },
-                layout: {
-                    improvedLayout: true
+            // Sélectionner les nœuds correspondants sur le graphe
+            if (matches.length > 0 && matches.length <= 20) {
+                const ids = matches.map(n => n.id);
+                network.selectNodes(ids);
+                if (matches.length === 1) {
+                    network.focus(ids[0], { scale: 1.5, animation: true });
                 }
-            };
+            }
+        });
+        
+        // === FILTRE PAR TYPE ===
+        document.getElementById('typeFilter').addEventListener('change', function() {
+            const selectedType = this.value;
+            if (!currentData) return;
             
-            network = new vis.Network(container, data, options);
+            if (!selectedType) {
+                // Aucun filtre : ré-afficher tout
+                renderGraph(currentData.nodes, currentData.edges);
+                updateEntityList(currentData.nodes);
+                return;
+            }
             
-            network.on('click', function(params) {
-                if (params.nodes.length > 0) {
-                    const nodeId = params.nodes[0];
-                    const node = currentData.nodes.find(n => n.id === nodeId);
-                    showNodeDetails(node);
-                } else {
-                    hideNodeDetails();
-                }
+            // Filtrer les nœuds par type
+            const filteredNodes = currentData.nodes.filter(n => n.type === selectedType);
+            const filteredIds = new Set(filteredNodes.map(n => n.id));
+            
+            // Garder les arêtes qui connectent les nœuds filtrés
+            const filteredEdges = currentData.edges.filter(e => 
+                filteredIds.has(e.from) || filteredIds.has(e.to)
+            );
+            
+            // Ajouter les nœuds connectés (voisins)
+            const connectedIds = new Set(filteredIds);
+            filteredEdges.forEach(e => {
+                connectedIds.add(e.from);
+                connectedIds.add(e.to);
             });
+            const allVisibleNodes = currentData.nodes.filter(n => connectedIds.has(n.id));
             
-            updateStats(filteredNodes.length, filteredEdges.length);
-        }
+            renderGraph(allVisibleNodes, filteredEdges);
+            updateEntityList(filteredNodes);
+        });
+        
+        // Peupler le filtre par type quand le graphe est chargé
+        const originalUpdateLegend = updateLegend;
+        updateLegend = function(nodes) {
+            originalUpdateLegend(nodes);
+            // Peupler le select de filtrage
+            const types = [...new Set(nodes.map(n => n.type))].sort();
+            const select = document.getElementById('typeFilter');
+            select.innerHTML = '<option value="">Tous les types</option>' + 
+                types.map(t => `<option value="${t}">${t} (${nodes.filter(n => n.type === t).length})</option>`).join('');
+        };
         
         // Initialisation
         loadMemories();

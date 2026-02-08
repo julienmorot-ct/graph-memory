@@ -39,8 +39,15 @@ PyYAML>=6.0              # Parsing des ontologies YAML
 python-docx>=0.8.11      # Lecture fichiers .docx
 pypdf>=3.0.0             # Lecture fichiers PDF
 
+# === HTML Processing ===
+beautifulsoup4>=4.12.0
+
+# === CLI ===
+click>=8.0.0              # Framework CLI
+rich>=13.0.0              # Affichage CLI (tableaux, spinners, couleurs)
+aiohttp>=3.9.0            # Client HTTP async pour le CLI
+
 # === Tests (optionnel, pour dev) ===
 # pytest>=7.0.0
 # pytest-asyncio>=0.21.0
 # pytest-cov>=4.0.0
-beautifulsoup4>=4.12.0

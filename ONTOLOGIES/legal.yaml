@@ -170,6 +170,22 @@ entity_types:
       - "Annexe 3 - Conditions Financières"
       - "Annexe 5 - Plan de Réversibilité"
 
+  - name: Service
+    description: Service ou prestation fournie
+    examples:
+      - "Hébergement SecNumCloud"
+      - "Infogérance"
+      - "Support 24/7"
+      - "Services de Cloud Computing"
+
+  - name: Product
+    description: Produit, logiciel ou technologie référencé dans le contrat
+    examples:
+      - "VMware vSphere"
+      - "Microsoft 365"
+      - "OpenShift"
+      - "Solution SaaS"
+
   - name: Reference
     description: Référence à un document externe
     examples:
@@ -297,17 +313,43 @@ relation_types:
     examples:
       - "Contrat → EFFECTIVE_DATE → 01/01/2026"
 
+  - name: REFERENCES
+    description: Référence à un autre article, document ou norme
+    examples:
+      - "Article 12 → REFERENCES → Article 5"
+      - "Contrat → REFERENCES → RGPD"
+
   - name: JURISDICTION
     description: Juridiction applicable
     examples:
       - "Contrat → JURISDICTION → Tribunal de Commerce de Paris"
 
+  - name: RELATED_TO
+    description: Relation générique (dernier recours si aucun type spécifique ne convient)
+    examples:
+      - "Concept A → RELATED_TO → Concept B"
+
+  - name: CONTAINS
+    description: Contient, inclut un élément (plus générique que INCLUDES_ANNEX)
+    examples:
+      - "Convention de Services → CONTAINS → Clause de confidentialité"
+      - "Article 5 → CONTAINS → Obligation de moyens"
+
+  - name: MENTIONS
+    description: Le document ou une clause mentionne une entité
+    examples:
+      - "Article 21 → MENTIONS → RGPD"
+      - "Préambule → MENTIONS → Cloud Temple SAS"
+
+  - name: CREATED_BY
+    description: Document rédigé ou créé par
+    examples:
+      - "CGA → CREATED_BY → Direction Juridique"
+
 # =============================================================================
 # Règles d'extraction spécifiques
 # =============================================================================
 extraction_rules:
-  max_entities: 50
-  max_relations: 60
   include_metrics: true
   include_durations: true
   include_amounts: true

@@ -22,8 +22,10 @@ from .models import (
 from .ontology import Ontology, get_ontology_manager
 
 
-# Prompt d'extraction structuré - Version améliorée avec métriques et durées
-EXTRACTION_PROMPT = """Tu es un expert en extraction d'information pour documents contractuels et juridiques. Analyse le document suivant et extrait TOUTES les entités importantes, y compris les valeurs numériques, métriques et durées.
+# Prompt d'extraction MINIMAL (fallback sans ontologie).
+# Toute la logique métier (types d'entités, relations, règles) vient de l'ontologie.
+# Ce prompt n'est utilisé que par extract_from_text() quand aucune ontologie n'est chargée.
+EXTRACTION_PROMPT = """Tu es un expert en extraction d'information structurée. Analyse le document suivant et extrait les entités et relations importantes.
 
 DOCUMENT:
 ---
@@ -31,69 +33,27 @@ DOCUMENT:
 ---
 
 INSTRUCTIONS:
-1. Identifie TOUTES les entités nommées (personnes, organisations, lieux, concepts)
-2. Identifie TOUTES les métriques et valeurs numériques importantes (SLA, pourcentages, taux)
-3. Identifie TOUTES les durées et délais (durée de contrat, préavis, périodes)
-4. Identifie TOUS les montants financiers (prix, tarifs, pénalités)
-5. Identifie les relations entre ces entités
-6. Fournis un bref résumé du document
+1. Identifie les entités nommées (personnes, organisations, lieux, concepts, valeurs)
+2. Identifie les relations entre ces entités
+3. Fournis un bref résumé
 
-TYPES D'ENTITÉS (avec exemples):
-- Person: Personne physique → "Jean Dupont", "Marie Martin (DSI)"
-- Organization: Entreprise, institution → "Cloud Temple SAS", "ANSSI"
-- Concept: Idée abstraite, terme technique → "SecNumCloud", "Infrastructure IaaS"
-- Location: Lieu géographique → "Paris", "Nanterre"
-- Date: Date précise → "1er janvier 2026", "Q1 2026"
-- Product: Produit ou technologie → "VMware", "Neo4j"
-- Service: Service proposé → "Support 24/7", "Infogérance"
-- Clause: Clause contractuelle → "Clause de réversibilité", "Confidentialité"
-- Certification: Certification ou norme → "ISO 27001", "HDS", "SOC 2 Type II"
-- Metric: Valeur numérique, SLA, pourcentage → "SLA 99.95%", "GTI 15 minutes", "Disponibilité 99.9%"
-- Duration: Durée ou délai → "36 mois", "3 ans", "préavis 6 mois", "rétention 30 jours"
-- Amount: Montant financier → "50 000 EUR/mois", "2 500 EUR HT", "pénalité 10%"
-- Other: Autre type important
-
-EXEMPLES D'EXTRACTION:
-Document: "Le SLA de disponibilité est de 99.95% avec un GTI de 15 minutes."
-→ Entités: {{"name": "SLA Disponibilité 99.95%", "type": "Metric", "description": "Niveau de service garanti"}}
-→ Entités: {{"name": "GTI 15 minutes", "type": "Metric", "description": "Garantie de temps d'intervention"}}
-
-Document: "Contrat de 36 mois renouvelable par tacite reconduction."
-→ Entités: {{"name": "Durée 36 mois", "type": "Duration", "description": "Durée initiale du contrat"}}
-
-Document: "Prix mensuel: 3 150 EUR HT."
-→ Entités: {{"name": "Prix 3 150 EUR HT/mois", "type": "Amount", "description": "Tarification mensuelle"}}
-
-TYPES DE RELATIONS:
-- MENTIONS: Le document mentionne l'entité
-- DEFINES: Le document définit/spécifie une valeur
-- RELATED_TO: Relation générique entre entités
-- BELONGS_TO: Appartenance
-- SIGNED_BY: Signature/validation
-- CREATED_BY: Création/auteur
-- REFERENCES: Référence à un autre document/concept
-- HAS_VALUE: Associe une métrique/durée/montant à un concept
-- GUARANTEES: Garantie de service (SLA)
-- CERTIFIES: Certification obtenue
+Les noms d'entités doivent être explicites et inclure les valeurs quand pertinent.
+Crée des relations ENTRE les entités les plus spécifiques, pas tout vers une entité centrale.
+Utilise des types de relations descriptifs (SIGNED_BY, HAS_DURATION, DEFINES, etc.) plutôt que RELATED_TO.
 
 Réponds UNIQUEMENT avec un JSON valide:
 ```json
 {{
   "entities": [
-    {{"name": "Nom de l'entité", "type": "Person|Organization|Metric|Duration|Amount|...", "description": "Description courte"}}
+    {{"name": "Nom de l'entité", "type": "Person|Organization|Concept|Other", "description": "Description courte"}}
   ],
   "relations": [
-    {{"from_entity": "Nom entité source", "to_entity": "Nom entité cible", "type": "RELATED_TO|HAS_VALUE|...", "description": "Description de la relation"}}
+    {{"from_entity": "Nom entité source", "to_entity": "Nom entité cible", "type": "TYPE_RELATION", "description": "Description"}}
   ],
   "summary": "Résumé du document en 2-3 phrases",
-  "key_topics": ["sujet1", "sujet2", "sujet3"]
+  "key_topics": ["sujet1", "sujet2"]
 }}
 ```
-
-IMPORTANT: 
-- NE PAS OUBLIER les métriques (SLA, %), durées (mois, jours) et montants (EUR, USD)
-- Les noms d'entités doivent être explicites et inclure la valeur (ex: "SLA 99.95%" pas juste "SLA")
-- Privilégie l'exhaustivité pour les données chiffrées
 """
 
 
@@ -174,7 +134,7 @@ class ExtractorService:
             content = response.choices[0].message.content
             if content is None:
                 print(f"⚠️ [Extractor] Réponse LLM vide - message complet: {response.choices[0].message}", file=sys.stderr)
-                return ExtractionResult()
+                return ExtractionResult(summary=None)
             
             print(f"🔍 [Extractor] DEBUG content length: {len(content)}", file=sys.stderr)
             result = self._parse_extraction(content)
@@ -190,8 +150,15 @@ class ExtractorService:
             print(f"❌ [Extractor] Erreur API: {e}", file=sys.stderr)
             raise
     
-    def _parse_extraction(self, content: str) -> ExtractionResult:
-        """Parse la réponse JSON du LLM."""
+    def _parse_extraction(self, content: str, known_relation_types: Optional[set] = None) -> ExtractionResult:
+        """
+        Parse la réponse JSON du LLM.
+        
+        Args:
+            content: Contenu JSON brut du LLM
+            known_relation_types: Types de relations connus (depuis l'ontologie).
+                                   Si None, utilise BASE_RELATION_TYPES.
+        """
         try:
             # Nettoyer le contenu (parfois le LLM ajoute des ```json)
             content = content.strip()
@@ -213,10 +180,13 @@ class ExtractorService:
                     description=e.get("description")
                 ))
             
-            # Parser les relations
+            # Parser les relations — avec les types connus de l'ontologie
             relations = []
             for r in data.get("relations", []):
-                rel_type = self._parse_relation_type(r.get("type", "RELATED_TO"))
+                rel_type = self._parse_relation_type(
+                    r.get("type", "RELATED_TO"),
+                    known_types=known_relation_types
+                )
                 relations.append(ExtractedRelation(
                     from_entity=r.get("from_entity", "").strip(),
                     to_entity=r.get("to_entity", "").strip(),
@@ -235,7 +205,7 @@ class ExtractorService:
             print(f"⚠️ [Extractor] Erreur parsing JSON: {e}", file=sys.stderr)
             print(f"   Contenu reçu: {content[:200]}...", file=sys.stderr)
             # Retourner un résultat vide plutôt que crasher
-            return ExtractionResult()
+            return ExtractionResult(summary=None)
     
     @staticmethod
     def _parse_entity_type(type_str: str) -> EntityType:
@@ -256,20 +226,39 @@ class ExtractorService:
         }
         return type_map.get(type_str.lower(), EntityType.OTHER)
     
+    # Types de base (utilisés quand aucune ontologie n'est chargée)
+    BASE_RELATION_TYPES = {
+        "MENTIONS", "DEFINES", "RELATED_TO", "BELONGS_TO",
+        "SIGNED_BY", "CREATED_BY", "REFERENCES", "CONTAINS",
+        "HAS_VALUE", "CERTIFIES", "PART_OF",
+    }
+    
     @staticmethod
-    def _parse_relation_type(type_str: str) -> RelationType:
-        """Convertit une string en RelationType."""
-        type_map = {
-            "mentions": RelationType.MENTIONS,
-            "defines": RelationType.DEFINES,
-            "related_to": RelationType.RELATED_TO,
-            "belongs_to": RelationType.BELONGS_TO,
-            "signed_by": RelationType.SIGNED_BY,
-            "created_by": RelationType.CREATED_BY,
-            "references": RelationType.REFERENCES,
-            "contains": RelationType.CONTAINS,
-        }
-        return type_map.get(type_str.lower(), RelationType.RELATED_TO)
+    def _parse_relation_type(type_str: str, known_types: Optional[set] = None) -> str:
+        """
+        Convertit une string en type de relation.
+        
+        Accepte les types définis par l'ontologie (dynamique).
+        Les types inconnus qui ont un format valide (MAJ + underscores) sont acceptés tels quels.
+        
+        Args:
+            type_str: Type brut retourné par le LLM
+            known_types: Set de types connus (provenant de l'ontologie). Si None, utilise BASE_RELATION_TYPES.
+        """
+        # Normaliser : majuscules, underscores
+        normalized = type_str.strip().upper().replace(" ", "_").replace("-", "_")
+        
+        # Types connus depuis l'ontologie (ou base par défaut)
+        valid_types = known_types or ExtractorService.BASE_RELATION_TYPES
+        
+        if normalized in valid_types:
+            return normalized
+        
+        # Accepter tout type au format valide (MAJ + underscores) — le LLM peut inventer
+        if normalized.replace("_", "").isalpha() and normalized == normalized.upper():
+            return normalized
+        
+        return "RELATED_TO"
     
     @retry(
         stop=stop_after_attempt(3),
@@ -293,13 +282,17 @@ class ExtractorService:
         Returns:
             ExtractionResult avec entités, relations, résumé
         """
-        # Charger l'ontologie
+        # Charger l'ontologie — OBLIGATOIRE
         ontology_manager = get_ontology_manager()
         ontology = ontology_manager.get_ontology(ontology_name)
         
         if not ontology:
-            print(f"⚠️ [Extractor] Ontologie '{ontology_name}' non trouvée, utilisation de 'default'", file=sys.stderr)
-            ontology = ontology_manager.get_default_ontology()
+            available = [o["name"] for o in ontology_manager.list_ontologies()]
+            raise ValueError(
+                f"Ontologie '{ontology_name}' introuvable. "
+                f"Ontologies disponibles: {available}. "
+                f"Chaque mémoire DOIT avoir une ontologie valide."
+            )
         
         # Tronquer si nécessaire
         if len(text) > max_text_length:
@@ -330,9 +323,16 @@ class ExtractorService:
             content = response.choices[0].message.content
             if content is None:
                 print(f"⚠️ [Extractor] Réponse LLM vide", file=sys.stderr)
-                return ExtractionResult()
+                return ExtractionResult(summary=None)
             
-            result = self._parse_extraction(content)
+            # Extraire les types de relations depuis l'ontologie chargée
+            ontology_relation_types = {
+                rt.name.upper() for rt in ontology.relation_types
+            } | self.BASE_RELATION_TYPES  # Union avec les types de base
+            
+            print(f"🔗 [Extractor] Types de relations ontologie '{ontology.name}': {sorted(ontology_relation_types)}", file=sys.stderr)
+            
+            result = self._parse_extraction(content, known_relation_types=ontology_relation_types)
             
             print(f"✅ [Extractor] Extrait ({ontology.name}): {len(result.entities)} entités, {len(result.relations)} relations", file=sys.stderr)
             

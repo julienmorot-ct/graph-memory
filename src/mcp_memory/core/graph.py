@@ -467,13 +467,22 @@ class GraphService:
         """
         Ajoute les entités et relations extraites au graphe.
         
-        Utilise MERGE pour éviter les doublons d'entités.
+        Fusion multi-documents intelligente :
+        - MERGE pour éviter les doublons d'entités (clé: name + memory_id)
+        - Descriptions ENRICHIES (concaténation au lieu d'écrasement)
+        - Source documents trackés sur chaque entité (propriété source_docs)
+        - Relations ENRICHIES au MATCH (description + poids cumulatif)
+        - Lien MENTIONS entre document et entité avec compteur
         """
         entities_created = 0
+        entities_merged = 0
         relations_created = 0
+        relations_merged = 0
         
         async with self.session() as session:
-            # Ajouter/Merger les entités
+            # =================================================================
+            # Phase 1 : Ajouter/Merger les entités
+            # =================================================================
             for entity in extraction.entities:
                 result = await session.run(
                     """
@@ -481,18 +490,35 @@ class GraphService:
                     ON CREATE SET 
                         e.type = $type,
                         e.description = $description,
+                        e.source_docs = [$doc_id],
                         e.created_at = datetime(),
+                        e.updated_at = datetime(),
                         e.mention_count = 1
                     ON MATCH SET 
                         e.mention_count = e.mention_count + 1,
-                        e.description = CASE WHEN $description IS NOT NULL 
-                            THEN $description ELSE e.description END
-                    WITH e
+                        e.updated_at = datetime(),
+                        e.source_docs = CASE 
+                            WHEN NOT $doc_id IN coalesce(e.source_docs, []) 
+                            THEN coalesce(e.source_docs, []) + $doc_id
+                            ELSE e.source_docs 
+                        END,
+                        e.description = CASE 
+                            WHEN $description IS NULL THEN e.description
+                            WHEN e.description IS NULL THEN $description
+                            WHEN e.description CONTAINS $description THEN e.description
+                            ELSE e.description + ' | ' + $description
+                        END,
+                        e.type = CASE 
+                            WHEN e.type = 'Unknown' OR e.type = 'Other' THEN $type
+                            ELSE e.type
+                        END
+                    WITH e,
+                         CASE WHEN e.created_at = e.updated_at THEN true ELSE false END as was_created
                     MATCH (d:Document {id: $doc_id})
                     MERGE (d)-[r:MENTIONS]->(e)
                     ON CREATE SET r.count = 1
                     ON MATCH SET r.count = r.count + 1
-                    RETURN e
+                    RETURN was_created
                     """,
                     name=entity.name,
                     memory_id=memory_id,
@@ -500,10 +526,15 @@ class GraphService:
                     description=entity.description,
                     doc_id=doc_id
                 )
-                await result.consume()
-                entities_created += 1
+                record = await result.single()
+                if record and record["was_created"]:
+                    entities_created += 1
+                else:
+                    entities_merged += 1
             
-            # Ajouter les relations entre entités
+            # =================================================================
+            # Phase 2 : Ajouter/Enrichir les relations entre entités
+            # =================================================================
             for relation in extraction.relations:
                 result = await session.run(
                     """
@@ -513,24 +544,42 @@ class GraphService:
                     ON CREATE SET 
                         r.description = $description,
                         r.weight = $weight,
+                        r.source_doc = $doc_id,
                         r.created_at = datetime()
-                    RETURN r
+                    ON MATCH SET
+                        r.weight = r.weight + coalesce($weight, 1.0),
+                        r.description = CASE 
+                            WHEN $description IS NULL THEN r.description
+                            WHEN r.description IS NULL THEN $description
+                            WHEN r.description CONTAINS $description THEN r.description
+                            ELSE r.description + ' | ' + $description
+                        END
+                    RETURN r.created_at = datetime() as was_created
                     """,
                     from_name=relation.from_entity,
                     to_name=relation.to_entity,
                     memory_id=memory_id,
                     rel_type=relation.type,
                     description=relation.description,
-                    weight=relation.weight
+                    weight=relation.weight,
+                    doc_id=doc_id
                 )
-                await result.consume()
-                relations_created += 1
+                record = await result.single()
+                if record:
+                    relations_created += 1
+                else:
+                    relations_merged += 1
         
-        print(f"🔗 [Graph] Ajouté: {entities_created} entités, {relations_created} relations", file=sys.stderr)
+        total_entities = entities_created + entities_merged
+        total_relations = relations_created + relations_merged
+        print(f"🔗 [Graph] Entités: {entities_created} nouvelles + {entities_merged} fusionnées = {total_entities}", file=sys.stderr)
+        print(f"🔗 [Graph] Relations: {relations_created} nouvelles + {relations_merged} fusionnées = {total_relations}", file=sys.stderr)
         
         return {
             "entities_created": entities_created,
-            "relations_created": relations_created
+            "entities_merged": entities_merged,
+            "relations_created": relations_created,
+            "relations_merged": relations_merged
         }
     
     # =========================================================================
@@ -725,7 +774,8 @@ class GraphService:
                 """
                 MATCH (e:Entity {memory_id: $memory_id})
                 RETURN e.name as id, e.name as label, e.type as type, 
-                       e.description as description, e.mention_count as mentions
+                       e.description as description, e.mention_count as mentions,
+                       coalesce(e.source_docs, []) as source_docs
                 ORDER BY e.mention_count DESC
                 """,
                 memory_id=memory_id
@@ -741,6 +791,7 @@ class GraphService:
                     "type": record["type"] or "Unknown",
                     "description": record["description"] or "",
                     "mentions": record["mentions"] or 1,
+                    "source_docs": list(record["source_docs"]),
                     "node_type": "entity"
                 })
                 node_ids.add(node_id)

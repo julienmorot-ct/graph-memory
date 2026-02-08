@@ -119,11 +119,19 @@ RÈGLES STRICTES:
 3. EXTRAIT CHAQUE DURÉE MENTIONNÉE (ex: "36 mois", "6 mois de préavis", "12 mois")
 4. EXTRAIT CHAQUE MONTANT avec devise (ex: "8 500 EUR HT", "3 150 EUR/mois")
 5. ⚠️ TOTAUX PRIORITAIRES: Si tu vois "Total", "estimé", "global" → créer entité OBLIGATOIRE!
-   Exemple: "Total mensuel estimé: 3 150 EUR HT" → entité "3 150 EUR HT (total mensuel estimé)"
 6. EXTRAIT CHAQUE CERTIFICATION/NORME LISTÉE (ex: SecNumCloud, HDS, ISO 27001, SOC 2)
 7. EXTRAIT CHAQUE SLA/MÉTRIQUE (ex: "99.95%", "GTI 15 min", "GTR 4h")
 8. Les noms d'entités doivent être explicites et inclure les valeurs
-9. Relie chaque entité au contexte approprié
+
+⚠️ RÈGLES ANTI-HUB (TRÈS IMPORTANT):
+9. NE PAS relier toutes les entités à l'organisation principale!
+   ❌ MAUVAIS: "Cloud Temple → RELATED_TO → Article 1", "Cloud Temple → RELATED_TO → Article 2", etc.
+   ✅ BON: "Article 1 → DEFINES → Services", "Clause confidentialité → HAS_DURATION → 5 ans"
+10. Crée des relations ENTRE les entités les plus spécifiques (clause→durée, article→obligation)
+11. L'organisation ne doit avoir que des relations STRUCTURELLES: SIGNED_BY, PARTY_TO, LOCATED_AT, HAS_CERTIFICATION, GUARANTEES
+12. Les articles/clauses doivent être reliés à leurs CONTENUS (durées, montants, obligations), PAS à l'organisation
+13. Utilise les types de relations SPÉCIFIQUES (HAS_DURATION, HAS_AMOUNT, OBLIGATES, DEFINES) plutôt que RELATED_TO
+14. RELATED_TO est un DERNIER RECOURS — privilégie toujours un type plus précis
 
 Réponds UNIQUEMENT avec un JSON valide:
 ```json
@@ -261,37 +269,28 @@ class OntologyManager:
         """
         return self._ontologies.get(name)
     
-    def get_default_ontology(self) -> Ontology:
+    def get_ontology_or_error(self, name: str) -> Ontology:
         """
-        Récupère l'ontologie par défaut.
+        Récupère une ontologie par nom. Lève une erreur si introuvable.
         
+        Args:
+            name: Nom de l'ontologie (ex: "legal", "cloud")
+            
         Returns:
-            L'ontologie "default" ou une ontologie minimale si non trouvée
+            L'ontologie demandée
+            
+        Raises:
+            ValueError: Si l'ontologie n'existe pas
         """
-        if 'default' in self._ontologies:
-            return self._ontologies['default']
-        
-        # Retourner la première ontologie disponible ou une ontologie minimale
-        if self._ontologies:
-            return list(self._ontologies.values())[0]
-        
-        # Ontologie minimale de fallback
-        return Ontology(
-            name="fallback",
-            version="1.0",
-            description="Ontologie minimale de fallback",
-            context="Tu es un expert en extraction d'information. Analyse le document et extrait les entités et relations importantes.",
-            entity_types=[
-                EntityTypeDefinition("Person", "Personne physique", ["Jean Dupont"]),
-                EntityTypeDefinition("Organization", "Entreprise, institution", ["Cloud Temple"]),
-                EntityTypeDefinition("Concept", "Idée abstraite", ["SecNumCloud"]),
-            ],
-            relation_types=[
-                RelationTypeDefinition("RELATED_TO", "Relation générique", ["A → B"]),
-                RelationTypeDefinition("BELONGS_TO", "Appartenance", ["Personne → Organisation"]),
-            ],
-            extraction_rules=ExtractionRules()
-        )
+        ontology = self._ontologies.get(name)
+        if not ontology:
+            available = list(self._ontologies.keys())
+            raise ValueError(
+                f"Ontologie '{name}' introuvable. "
+                f"Ontologies disponibles: {available}. "
+                f"Chaque mémoire DOIT avoir une ontologie valide."
+            )
+        return ontology
     
     def list_ontologies(self) -> List[Dict[str, Any]]:
         """

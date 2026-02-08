@@ -70,7 +70,7 @@ class ExtractedRelation(BaseModel):
     """Relation extraite par le LLM."""
     from_entity: str = Field(..., description="Nom de l'entité source")
     to_entity: str = Field(..., description="Nom de l'entité cible")
-    type: RelationType = Field(default=RelationType.RELATED_TO, description="Type de relation")
+    type: str = Field(default="RELATED_TO", description="Type de relation (string libre, supporte les types d'ontologie)")
     description: Optional[str] = Field(None, description="Description de la relation")
     weight: float = Field(default=1.0, ge=0.0, le=1.0, description="Force de la relation")
     
