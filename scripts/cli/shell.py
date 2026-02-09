@@ -17,6 +17,7 @@ Commandes :
   graph             Graphe complet (types, relations, docs)
   docs              Lister les documents
   ingest <path>     Ingérer un document
+  ingestdir <path>  Ingérer un répertoire (récursif)
   deldoc <id>       Supprimer un document
   entities          Entités par type
   entity <nom>      Contexte d'une entité
@@ -63,7 +64,7 @@ from .display import (
 SHELL_COMMANDS = [
     "help", "health", "list", "use", "info", "graph", "docs",
     "entities", "entity", "relations", "ask", "check", "cleanup",
-    "create", "ingest", "deldoc", "ontologies",
+    "create", "ingest", "ingestdir", "deldoc", "ontologies",
     "limit", "delete", "debug", "clear", "exit", "quit",
 ]
 
@@ -544,6 +545,179 @@ async def cmd_ingest(client: MCPClient, state: dict, args: str):
         show_error(str(e))
 
 
+async def cmd_ingestdir(client: MCPClient, state: dict, args: str):
+    """
+    Ingère un répertoire entier dans la mémoire courante (récursif).
+    
+    Usage: ingestdir <chemin> [--exclude PATTERN] [--confirm] [--force]
+    Exemple: ingestdir ./MATIERE/JURIDIQUE --exclude *.tmp
+    """
+    import fnmatch
+    from pathlib import Path
+    from rich.prompt import Confirm
+
+    SUPPORTED_EXTENSIONS = {".txt", ".md", ".html", ".docx", ".pdf", ".csv"}
+
+    mem = state.get("memory")
+    if not mem:
+        show_warning("Sélectionnez une mémoire avec 'use <id>' avant d'ingérer")
+        return
+    if not args:
+        show_warning("Usage: ingestdir <chemin> [--exclude PATTERN] [--confirm] [--force]")
+        return
+
+    # Parser les options depuis la ligne de commande brute
+    confirm_mode = "--confirm" in args
+    force_mode = "--force" in args
+    
+    # Extraire les patterns d'exclusion
+    exclude_patterns = []
+    remaining = args
+    while "--exclude" in remaining:
+        idx = remaining.index("--exclude")
+        after = remaining[idx + 9:].strip()
+        parts = after.split(maxsplit=1)
+        if parts:
+            exclude_patterns.append(parts[0])
+            remaining = remaining[:idx] + (parts[1] if len(parts) > 1 else "")
+        else:
+            remaining = remaining[:idx]
+    
+    # Nettoyer le chemin
+    dir_path = remaining.replace("--confirm", "").replace("--force", "").strip()
+    
+    if not dir_path:
+        show_warning("Usage: ingestdir <chemin> [--exclude PATTERN] [--confirm] [--force]")
+        return
+    
+    if not os.path.isdir(dir_path):
+        show_error(f"Répertoire non trouvé: {dir_path}")
+        return
+
+    # --- 1. Scanner ---
+    console.print(f"[dim]📁 Scan de {dir_path}...[/dim]")
+    all_files = []
+    excluded_files = []
+    unsupported_files = []
+
+    for root, dirs, files in os.walk(dir_path):
+        for fname in sorted(files):
+            fpath = os.path.join(root, fname)
+            rel_path = os.path.relpath(fpath, dir_path)
+
+            is_excluded = False
+            for pattern in exclude_patterns:
+                if fnmatch.fnmatch(rel_path, pattern) or fnmatch.fnmatch(fname, pattern):
+                    is_excluded = True
+                    break
+            if is_excluded:
+                excluded_files.append(rel_path)
+                continue
+
+            ext = Path(fname).suffix.lower()
+            if ext not in SUPPORTED_EXTENSIONS:
+                unsupported_files.append(rel_path)
+                continue
+
+            all_files.append({
+                "path": fpath,
+                "rel_path": rel_path,
+                "filename": fname,
+                "size": os.path.getsize(fpath),
+            })
+
+    if not all_files:
+        show_warning(f"Aucun fichier supporté dans {dir_path}")
+        if unsupported_files:
+            console.print(f"[dim]{len(unsupported_files)} fichiers non supportés ignorés[/dim]")
+        return
+
+    # --- 2. Vérifier les doublons ---
+    graph_result = await client.get_graph(mem)
+    existing = set()
+    if graph_result.get("status") == "ok":
+        for d in graph_result.get("documents", []):
+            existing.add(d.get("filename", ""))
+
+    to_ingest = []
+    already = []
+    for f in all_files:
+        if f["filename"] in existing and not force_mode:
+            already.append(f)
+        else:
+            to_ingest.append(f)
+
+    # --- 3. Résumé ---
+    total_size = sum(f["size"] for f in to_ingest)
+    console.print(Panel.fit(
+        f"[bold]Répertoire:[/bold]  [cyan]{os.path.abspath(dir_path)}[/cyan]\n"
+        f"[bold]Mémoire:[/bold]     [cyan]{mem}[/cyan]\n\n"
+        f"[bold]Fichiers trouvés:[/bold]  [green]{len(all_files)}[/green]"
+        + (f"  [yellow]Exclus: {len(excluded_files)}[/yellow]" if excluded_files else "")
+        + (f"  [dim]Non supportés: {len(unsupported_files)}[/dim]" if unsupported_files else "")
+        + (f"  [yellow]Déjà ingérés: {len(already)}[/yellow]" if already else "")
+        + f"\n[bold]À ingérer:[/bold]      [green bold]{len(to_ingest)}[/green bold]",
+        title="📁 Import en masse",
+        border_style="blue",
+    ))
+
+    if not to_ingest:
+        show_success("Tous les fichiers sont déjà ingérés !")
+        return
+
+    # Liste
+    for i, f in enumerate(to_ingest, 1):
+        console.print(f"  [dim]{i}.[/dim] {f['rel_path']}")
+
+    # --- 4. Ingestion ---
+    ingested = 0
+    skipped = 0
+    errors = 0
+
+    for i, f in enumerate(to_ingest, 1):
+        if confirm_mode:
+            if not Confirm.ask(f"[{i}/{len(to_ingest)}] Ingérer [cyan]{f['rel_path']}[/cyan] ?"):
+                skipped += 1
+                continue
+
+        console.print(f"[dim][{i}/{len(to_ingest)}] 📥 {f['filename']}...[/dim]")
+        try:
+            with open(f["path"], "rb") as fh:
+                content_bytes = fh.read()
+            content_b64 = base64.b64encode(content_bytes).decode("utf-8")
+
+            result = await client.call_tool("memory_ingest", {
+                "memory_id": mem,
+                "content_base64": content_b64,
+                "filename": f["filename"],
+                "force": force_mode,
+            })
+
+            if result.get("status") == "ok":
+                e_total = result.get("entities_created", 0) + result.get("entities_merged", 0)
+                r_total = result.get("relations_created", 0) + result.get("relations_merged", 0)
+                console.print(f"  [green]✅[/green] {f['filename']}: {e_total} entités, {r_total} relations")
+                ingested += 1
+            elif result.get("status") == "already_exists":
+                console.print(f"  [yellow]⏭️[/yellow] {f['filename']}: déjà ingéré")
+                skipped += 1
+            else:
+                console.print(f"  [red]❌[/red] {f['filename']}: {result.get('message', '?')}")
+                errors += 1
+        except Exception as e:
+            console.print(f"  [red]❌[/red] {f['filename']}: {e}")
+            errors += 1
+
+    # --- 5. Résumé final ---
+    console.print(Panel.fit(
+        f"[green]✅ Ingérés: {ingested}[/green]  "
+        f"[yellow]⏭️ Skippés: {skipped}[/yellow]  "
+        f"[red]❌ Erreurs: {errors}[/red]",
+        title="📊 Résultat",
+        border_style="green" if errors == 0 else "yellow",
+    ))
+
+
 async def cmd_deldoc(client: MCPClient, state: dict, args: str):
     """
     Supprime un document de la mémoire courante.
@@ -648,6 +822,7 @@ def run_shell(url: str, token: str):
         # --- Documents ---
         "docs":         "Lister les documents",
         "ingest <path>":"Ingérer un fichier (--force pour réingérer)",
+        "ingestdir <p>":"Ingérer un répertoire (--exclude, --confirm, --force)",
         "deldoc <id>":  "Supprimer un document",
         # --- Exploration ---
         "entities":     "Entités par type (avec descriptions)",
@@ -768,6 +943,9 @@ def run_shell(url: str, token: str):
 
             elif command == "ingest":
                 asyncio.run(cmd_ingest(client, state, args))
+
+            elif command == "ingestdir":
+                asyncio.run(cmd_ingestdir(client, state, args))
 
             elif command == "deldoc":
                 asyncio.run(cmd_deldoc(client, state, args))

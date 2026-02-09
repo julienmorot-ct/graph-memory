@@ -12,7 +12,7 @@ Commandes disponibles :
   - memory entities   : Entités par type
   - memory entity     : Contexte d'une entité
   - memory relations  : Relations par type
-  - document ingest/list/delete
+  - document ingest/ingest-dir/list/delete
   - storage check     : Vérifier cohérence S3/graphe
   - storage cleanup   : Nettoyer les orphelins S3
   - ontologies        : Lister les ontologies
@@ -486,6 +486,204 @@ def document_ingest(ctx, memory_id, file_path, force):
         except Exception as e:
             show_error(str(e))
     asyncio.run(_run())
+
+
+@document.command("ingest-dir")
+@click.argument("memory_id")
+@click.argument("directory", type=click.Path(exists=True, file_okay=False))
+@click.option("--exclude", "-e", multiple=True, help="Patterns à exclure (glob, ex: '*.tmp'). Répétable.")
+@click.option("--confirm", "-c", is_flag=True, help="Demander confirmation pour chaque fichier")
+@click.option("--force", "-f", is_flag=True, help="Forcer la ré-ingestion des fichiers déjà présents")
+@click.pass_context
+def document_ingest_dir(ctx, memory_id, directory, exclude, confirm, force):
+    """📁 Ingérer un répertoire entier (récursif).
+
+    \b
+    Parcourt le répertoire et ses sous-répertoires pour trouver les fichiers
+    supportés (.txt, .md, .html, .docx, .pdf, .csv).
+
+    \b
+    Exemples:
+      document ingest-dir JURIDIQUE ./MATIERE/JURIDIQUE
+      document ingest-dir JURIDIQUE ./docs -e '*.tmp' -e '__pycache__/*'
+      document ingest-dir JURIDIQUE ./docs --confirm
+      document ingest-dir JURIDIQUE ./docs --force
+    """
+    import fnmatch
+    from pathlib import Path
+    from rich.table import Table
+    from rich.panel import Panel
+
+    SUPPORTED_EXTENSIONS = {".txt", ".md", ".html", ".docx", ".pdf", ".csv"}
+
+    async def _run():
+        try:
+            client = MCPClient(ctx.obj["url"], ctx.obj["token"])
+
+            # --- 1. Scanner le répertoire ---
+            console.print(f"[dim]📁 Scan de {directory}...[/dim]")
+            all_files = []
+            excluded_files = []
+            unsupported_files = []
+
+            for root, dirs, files in os.walk(directory):
+                for fname in sorted(files):
+                    fpath = os.path.join(root, fname)
+                    rel_path = os.path.relpath(fpath, directory)
+
+                    # Vérifier les patterns d'exclusion
+                    is_excluded = False
+                    for pattern in exclude:
+                        if fnmatch.fnmatch(rel_path, pattern) or fnmatch.fnmatch(fname, pattern):
+                            is_excluded = True
+                            break
+                    if is_excluded:
+                        excluded_files.append(rel_path)
+                        continue
+
+                    # Vérifier l'extension
+                    ext = Path(fname).suffix.lower()
+                    if ext not in SUPPORTED_EXTENSIONS:
+                        unsupported_files.append(rel_path)
+                        continue
+
+                    file_size = os.path.getsize(fpath)
+                    all_files.append({
+                        "path": fpath,
+                        "rel_path": rel_path,
+                        "filename": fname,
+                        "size": file_size,
+                    })
+
+            if not all_files:
+                show_warning(f"Aucun fichier supporté trouvé dans {directory}")
+                if unsupported_files:
+                    console.print(f"[dim]Formats non supportés: {len(unsupported_files)} fichiers ignorés[/dim]")
+                    console.print(f"[dim]Extensions supportées: {', '.join(sorted(SUPPORTED_EXTENSIONS))}[/dim]")
+                return
+
+            # --- 2. Vérifier les doublons (par filename) ---
+            graph_result = await client.get_graph(memory_id)
+            existing_filenames = set()
+            if graph_result.get("status") == "ok":
+                for d in graph_result.get("documents", []):
+                    existing_filenames.add(d.get("filename", ""))
+
+            to_ingest = []
+            already_present = []
+            for f in all_files:
+                if f["filename"] in existing_filenames and not force:
+                    already_present.append(f)
+                else:
+                    to_ingest.append(f)
+
+            # --- 3. Afficher le résumé ---
+            total_size = sum(f["size"] for f in to_ingest)
+            size_str = _format_size_simple(total_size)
+
+            summary_lines = [
+                f"[bold]Répertoire:[/bold]  [cyan]{os.path.abspath(directory)}[/cyan]",
+                f"[bold]Mémoire:[/bold]     [cyan]{memory_id}[/cyan]",
+                f"",
+                f"[bold]Fichiers trouvés:[/bold]     [green]{len(all_files)}[/green]",
+            ]
+            if excluded_files:
+                summary_lines.append(f"[bold]Exclus (patterns):[/bold]  [yellow]{len(excluded_files)}[/yellow]")
+            if unsupported_files:
+                summary_lines.append(f"[bold]Non supportés:[/bold]      [dim]{len(unsupported_files)}[/dim]")
+            if already_present:
+                summary_lines.append(f"[bold]Déjà ingérés:[/bold]      [yellow]{len(already_present)}[/yellow] (skip)")
+            summary_lines.append(f"[bold]À ingérer:[/bold]          [green bold]{len(to_ingest)}[/green bold] ({size_str})")
+
+            console.print(Panel.fit(
+                "\n".join(summary_lines),
+                title="📁 Import en masse",
+                border_style="blue",
+            ))
+
+            if not to_ingest:
+                show_success("Tous les fichiers sont déjà ingérés !")
+                return
+
+            # Liste des fichiers à ingérer
+            table = Table(title=f"📄 Fichiers à ingérer ({len(to_ingest)})", show_header=True)
+            table.add_column("#", style="dim", width=3)
+            table.add_column("Fichier", style="white")
+            table.add_column("Taille", style="dim", justify="right", width=10)
+
+            for i, f in enumerate(to_ingest, 1):
+                table.add_row(str(i), f["rel_path"], _format_size_simple(f["size"]))
+            console.print(table)
+
+            # --- 4. Ingestion ---
+            ingested = 0
+            skipped = 0
+            errors = 0
+
+            for i, f in enumerate(to_ingest, 1):
+                # Confirmation fichier par fichier si demandé
+                if confirm:
+                    if not Confirm.ask(f"[{i}/{len(to_ingest)}] Ingérer [cyan]{f['rel_path']}[/cyan] ?"):
+                        skipped += 1
+                        continue
+
+                console.print(f"[dim][{i}/{len(to_ingest)}] 📥 {f['filename']}...[/dim]")
+
+                try:
+                    with open(f["path"], "rb") as fh:
+                        content_bytes = fh.read()
+                    content_b64 = base64.b64encode(content_bytes).decode("utf-8")
+
+                    result = await client.call_tool("memory_ingest", {
+                        "memory_id": memory_id,
+                        "content_base64": content_b64,
+                        "filename": f["filename"],
+                        "force": force,
+                    })
+
+                    if result.get("status") == "ok":
+                        e_new = result.get("entities_created", 0)
+                        e_merged = result.get("entities_merged", 0)
+                        r_new = result.get("relations_created", 0)
+                        r_merged = result.get("relations_merged", 0)
+                        console.print(
+                            f"  [green]✅[/green] {f['filename']}: "
+                            f"[cyan]{e_new}+{e_merged}[/cyan] entités, "
+                            f"[cyan]{r_new}+{r_merged}[/cyan] relations"
+                        )
+                        ingested += 1
+                    elif result.get("status") == "already_exists":
+                        console.print(f"  [yellow]⏭️[/yellow] {f['filename']}: déjà ingéré")
+                        skipped += 1
+                    else:
+                        console.print(f"  [red]❌[/red] {f['filename']}: {result.get('message', '?')}")
+                        errors += 1
+                except Exception as e:
+                    console.print(f"  [red]❌[/red] {f['filename']}: {e}")
+                    errors += 1
+
+            # --- 5. Résumé final ---
+            console.print(Panel.fit(
+                f"[green]✅ Ingérés: {ingested}[/green]  "
+                f"[yellow]⏭️ Skippés: {skipped}[/yellow]  "
+                f"[red]❌ Erreurs: {errors}[/red]",
+                title="📊 Résultat",
+                border_style="green" if errors == 0 else "yellow",
+            ))
+
+        except Exception as e:
+            show_error(str(e))
+
+    asyncio.run(_run())
+
+
+def _format_size_simple(size_bytes: int) -> str:
+    """Convertit des bytes en taille lisible."""
+    for unit in ['B', 'KB', 'MB', 'GB']:
+        if size_bytes < 1024:
+            return f"{size_bytes:.1f} {unit}"
+        size_bytes /= 1024
+    return f"{size_bytes:.1f} TB"
 
 
 @document.command("list")
