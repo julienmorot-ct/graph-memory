@@ -49,13 +49,13 @@ Question en langage naturel
 
 ### Pourquoi un graphe plutôt que du RAG vectoriel ?
 
-| Critère | RAG vectoriel | Graph Memory |
-|---------|---------------|--------------|
-| **Précision** | Similitude sémantique approximative | Relations explicites et typées |
-| **Traçabilité** | Chunks anonymes | Entités nommées + documents sources |
-| **Exploration** | Recherche unidirectionnelle | Navigation multi-hop dans le graphe |
-| **Visualisation** | Difficile | Graphe interactif natif |
-| **Multi-documents** | Mélange de chunks | Relations inter-documents explicites |
+| Critère             | RAG vectoriel                       | Graph Memory                         |
+| ------------------- | ----------------------------------- | ------------------------------------ |
+| **Précision**       | Similitude sémantique approximative | Relations explicites et typées       |
+| **Traçabilité**     | Chunks anonymes                     | Entités nommées + documents sources  |
+| **Exploration**     | Recherche unidirectionnelle         | Navigation multi-hop dans le graphe  |
+| **Visualisation**   | Difficile                           | Graphe interactif natif              |
+| **Multi-documents** | Mélange de chunks                   | Relations inter-documents explicites |
 
 ---
 
@@ -126,15 +126,17 @@ Question en langage naturel
 │  │  Core Services                                                  │  │
 │  │  • GraphService (Neo4j)    • StorageService (S3)               │  │
 │  │  • ExtractorService (LLM)  • TokenManager (Auth)               │  │
+│  │  • EmbeddingService (BGE)  • VectorStoreService (Qdrant)       │  │
+│  │  • SemanticChunker                                             │  │
 │  └────────────────────────────────────────────────────────────────┘  │
 └──────────────────────────────┬───────────────────────────────────────┘
                                │
-        ┌──────────────────────┼──────────────────────┐
-        ▼                      ▼                      ▼
-┌───────────────┐    ┌───────────────┐    ┌───────────────┐
-│    Neo4j 5    │    │   S3 (Dell    │    │   LLMaaS      │
-│  (Graphe)     │    │   ECS, AWS…)  │    │  (OpenAI API) │
-└───────────────┘    └───────────────┘    └───────────────┘
+        ┌────────────┬─────────┼─────────┬────────────┐
+        ▼            ▼         ▼         ▼            ▼
+┌───────────┐ ┌───────────┐ ┌──────┐ ┌────────┐ ┌──────────┐
+│  Neo4j 5  │ │ S3 (Dell  │ │LLMaaS│ │ Qdrant │ │Embedding │
+│ (Graphe)  │ │ ECS,AWS…) │ │(Gen) │ │(Vector)│ │(BGE-M3)  │
+└───────────┘ └───────────┘ └──────┘ └────────┘ └──────────┘
 ```
 
 ---
@@ -167,28 +169,32 @@ cp .env.example .env
 
 ### Variables obligatoires
 
-| Variable | Description |
-|----------|-------------|
-| `S3_ENDPOINT_URL` | URL de l'endpoint S3 |
-| `S3_ACCESS_KEY_ID` | Clé d'accès S3 |
-| `S3_SECRET_ACCESS_KEY` | Secret S3 |
-| `S3_BUCKET_NAME` | Nom du bucket |
-| `LLMAAS_API_URL` | URL de l'API LLM (compatible OpenAI) |
-| `LLMAAS_API_KEY` | Clé d'API LLM |
-| `NEO4J_PASSWORD` | Mot de passe Neo4j |
-| `ADMIN_BOOTSTRAP_KEY` | Clé pour créer le premier token |
+| Variable               | Description                          |
+| ---------------------- | ------------------------------------ |
+| `S3_ENDPOINT_URL`      | URL de l'endpoint S3                 |
+| `S3_ACCESS_KEY_ID`     | Clé d'accès S3                       |
+| `S3_SECRET_ACCESS_KEY` | Secret S3                            |
+| `S3_BUCKET_NAME`       | Nom du bucket                        |
+| `LLMAAS_API_URL`       | URL de l'API LLM (compatible OpenAI) |
+| `LLMAAS_API_KEY`       | Clé d'API LLM                        |
+| `NEO4J_PASSWORD`       | Mot de passe Neo4j                   |
+| `ADMIN_BOOTSTRAP_KEY`  | Clé pour créer le premier token      |
 
 ### Variables optionnelles (avec valeurs par défaut)
 
-| Variable | Défaut | Description |
-|----------|--------|-------------|
-| `LLMAAS_MODEL` | `gpt-oss:120b` | Modèle LLM |
-| `LLMAAS_MAX_TOKENS` | `60000` | Max tokens par réponse |
-| `LLMAAS_TEMPERATURE` | `0.1` | Température (bas = déterministe) |
-| `EXTRACTION_MAX_TEXT_LENGTH` | `950000` | Max caractères envoyés au LLM |
-| `MCP_SERVER_PORT` | `8002` | Port d'écoute |
-| `MCP_SERVER_DEBUG` | `false` | Logs détaillés |
-| `MAX_DOCUMENT_SIZE_MB` | `50` | Taille max documents |
+| Variable                     | Défaut         | Description                                    |
+| ---------------------------- | -------------- | ---------------------------------------------- |
+| `LLMAAS_MODEL`               | `gpt-oss:120b` | Modèle LLM                                     |
+| `LLMAAS_MAX_TOKENS`          | `60000`        | Max tokens par réponse                         |
+| `LLMAAS_TEMPERATURE`         | `1.0`          | Température (gpt-oss:120b requiert 1.0)        |
+| `EXTRACTION_MAX_TEXT_LENGTH` | `950000`       | Max caractères envoyés au LLM                  |
+| `MCP_SERVER_PORT`            | `8002`         | Port d'écoute                                  |
+| `MCP_SERVER_DEBUG`           | `false`        | Logs détaillés                                 |
+| `MAX_DOCUMENT_SIZE_MB`       | `50`           | Taille max documents                           |
+| `RAG_SCORE_THRESHOLD`        | `0.65`         | Score cosinus min. pour un chunk RAG (0.0-1.0) |
+| `RAG_CHUNK_LIMIT`            | `8`            | Nombre max de chunks retournés par Qdrant      |
+| `CHUNK_SIZE`                 | `500`          | Taille cible en tokens par chunk               |
+| `CHUNK_OVERLAP`              | `50`           | Tokens de chevauchement entre chunks           |
 
 Voir `.env.example` pour la liste complète.
 
@@ -212,11 +218,11 @@ docker compose logs mcp-memory -f --tail 50
 
 ### Ports exposés
 
-| Service | Port | Description |
-|---------|------|-------------|
-| Graph Memory | `8002` | API MCP (SSE) + Interface Web + API REST |
-| Neo4j Browser | `7475` | Interface d'administration Neo4j |
-| Neo4j Bolt | `7688` | Protocole Bolt (requêtes Cypher) |
+| Service       | Port   | Description                              |
+| ------------- | ------ | ---------------------------------------- |
+| Graph Memory  | `8002` | API MCP (SSE) + Interface Web + API REST |
+| Neo4j Browser | `7475` | Interface d'administration Neo4j         |
+| Neo4j Bolt    | `7688` | Protocole Bolt (requêtes Cypher)         |
 
 ---
 
@@ -293,24 +299,24 @@ mcp> exit                          # Quitter
 
 ### Tableau complet des commandes
 
-| Fonctionnalité | CLI Click | Shell interactif |
-|---|---|---|
-| État serveur | `health` | `health` |
-| Lister mémoires | `memory list` | `list` |
-| Créer mémoire | `memory create ID -o onto` | `create ID onto` |
-| Supprimer mémoire | `memory delete ID` | `delete [ID]` |
-| Info mémoire | `memory info ID` | `info` |
-| Graphe texte | `memory graph ID` | `graph [ID]` |
-| Entités par type | `memory entities ID` | `entities` |
-| Contexte entité | `memory entity ID NAME` | `entity NAME` |
-| Relations par type | `memory relations ID [-t TYPE]` | `relations [TYPE]` |
-| Lister documents | `document list ID` | `docs` |
-| Ingérer document | `document ingest ID PATH` | `ingest PATH` |
-| Supprimer document | `document delete ID DOC` | `deldoc DOC` |
-| Question/Réponse | `ask ID "question"` | `ask question` |
-| Vérif. stockage S3 | `storage check [ID]` | `check [ID]` |
-| Nettoyage S3 | `storage cleanup [-f]` | `cleanup [--force]` |
-| Ontologies dispo. | `ontologies` | `ontologies` |
+| Fonctionnalité     | CLI Click                       | Shell interactif    |
+| ------------------ | ------------------------------- | ------------------- |
+| État serveur       | `health`                        | `health`            |
+| Lister mémoires    | `memory list`                   | `list`              |
+| Créer mémoire      | `memory create ID -o onto`      | `create ID onto`    |
+| Supprimer mémoire  | `memory delete ID`              | `delete [ID]`       |
+| Info mémoire       | `memory info ID`                | `info`              |
+| Graphe texte       | `memory graph ID`               | `graph [ID]`        |
+| Entités par type   | `memory entities ID`            | `entities`          |
+| Contexte entité    | `memory entity ID NAME`         | `entity NAME`       |
+| Relations par type | `memory relations ID [-t TYPE]` | `relations [TYPE]`  |
+| Lister documents   | `document list ID`              | `docs`              |
+| Ingérer document   | `document ingest ID PATH`       | `ingest PATH`       |
+| Supprimer document | `document delete ID DOC`        | `deldoc DOC`        |
+| Question/Réponse   | `ask ID "question"`             | `ask question`      |
+| Vérif. stockage S3 | `storage check [ID]`            | `check [ID]`        |
+| Nettoyage S3       | `storage cleanup [-f]`          | `cleanup [--force]` |
+| Ontologies dispo.  | `ontologies`                    | `ontologies`        |
 
 ---
 
@@ -320,43 +326,43 @@ mcp> exit                          # Quitter
 
 ### Gestion des mémoires
 
-| Outil | Paramètres | Description |
-|-------|------------|-------------|
-| `memory_create` | `memory_id`, `name`, `description`, `ontology` | Crée une mémoire avec ontologie |
-| `memory_delete` | `memory_id` | Supprime une mémoire (cascade: docs + entités + S3) |
-| `memory_list` | — | Liste toutes les mémoires |
-| `memory_stats` | `memory_id` | Statistiques (docs, entités, relations, types) |
+| Outil           | Paramètres                                     | Description                                         |
+| --------------- | ---------------------------------------------- | --------------------------------------------------- |
+| `memory_create` | `memory_id`, `name`, `description`, `ontology` | Crée une mémoire avec ontologie                     |
+| `memory_delete` | `memory_id`                                    | Supprime une mémoire (cascade: docs + entités + S3) |
+| `memory_list`   | —                                              | Liste toutes les mémoires                           |
+| `memory_stats`  | `memory_id`                                    | Statistiques (docs, entités, relations, types)      |
 
 ### Documents et extraction
 
-| Outil | Paramètres | Description |
-|-------|------------|-------------|
-| `memory_ingest` | `memory_id`, `content_base64`, `filename`, `force` | Ingère un document (S3 + extraction LLM + graphe) |
-| `document_delete` | `memory_id`, `filename` | Supprime un document et ses entités orphelines |
+| Outil             | Paramètres                                         | Description                                       |
+| ----------------- | -------------------------------------------------- | ------------------------------------------------- |
+| `memory_ingest`   | `memory_id`, `content_base64`, `filename`, `force` | Ingère un document (S3 + extraction LLM + graphe) |
+| `document_delete` | `memory_id`, `filename`                            | Supprime un document et ses entités orphelines    |
 
 ### Recherche et Q&A
 
-| Outil | Paramètres | Description |
-|-------|------------|-------------|
-| `memory_search` | `memory_id`, `query`, `limit` | Recherche d'entités dans le graphe |
-| `memory_get_context` | `memory_id`, `entity_name` | Contexte complet d'une entité (voisins + docs) |
-| `question_answer` | `memory_id`, `question`, `limit` | Question en langage naturel → réponse avec sources |
+| Outil                | Paramètres                       | Description                                        |
+| -------------------- | -------------------------------- | -------------------------------------------------- |
+| `memory_search`      | `memory_id`, `query`, `limit`    | Recherche d'entités dans le graphe                 |
+| `memory_get_context` | `memory_id`, `entity_name`       | Contexte complet d'une entité (voisins + docs)     |
+| `question_answer`    | `memory_id`, `question`, `limit` | Question en langage naturel → réponse avec sources |
 
 ### Stockage S3
 
-| Outil | Paramètres | Description |
-|-------|------------|-------------|
-| `storage_check` | `memory_id` (optionnel) | Vérifie cohérence graphe ↔ S3 |
-| `storage_cleanup` | `dry_run` | Nettoie les fichiers S3 orphelins |
+| Outil             | Paramètres              | Description                       |
+| ----------------- | ----------------------- | --------------------------------- |
+| `storage_check`   | `memory_id` (optionnel) | Vérifie cohérence graphe ↔ S3     |
+| `storage_cleanup` | `dry_run`               | Nettoie les fichiers S3 orphelins |
 
 ### Administration
 
-| Outil | Paramètres | Description |
-|-------|------------|-------------|
-| `admin_create_token` | `client_name`, `permissions` | Crée un token d'accès |
-| `admin_list_tokens` | — | Liste les tokens actifs |
-| `admin_revoke_token` | `token_hash` | Révoque un token |
-| `system_health` | — | État de santé des services (Neo4j, S3, LLM) |
+| Outil                | Paramètres                   | Description                                 |
+| -------------------- | ---------------------------- | ------------------------------------------- |
+| `admin_create_token` | `client_name`, `permissions` | Crée un token d'accès                       |
+| `admin_list_tokens`  | —                            | Liste les tokens actifs                     |
+| `admin_revoke_token` | `token_hash`                 | Révoque un token                            |
+| `system_health`      | —                            | État de santé des services (Neo4j, S3, LLM) |
 
 ---
 
@@ -366,12 +372,12 @@ Les ontologies définissent les **types d'entités** et **types de relations** q
 
 ### Ontologies fournies
 
-| Ontologie | Fichier | Entités | Relations | Usage |
-|-----------|---------|---------|-----------|-------|
-| `legal` | `ONTOLOGIES/legal.yaml` | 22 types | 22 types | Documents juridiques, contrats |
-| `cloud` | `ONTOLOGIES/cloud.yaml` | — | — | Infrastructure cloud |
-| `managed-services` | `ONTOLOGIES/managed-services.yaml` | — | — | Services managés |
-| `technical` | `ONTOLOGIES/technical.yaml` | — | — | Documentation technique |
+| Ontologie          | Fichier                            | Entités  | Relations | Usage                          |
+| ------------------ | ---------------------------------- | -------- | --------- | ------------------------------ |
+| `legal`            | `ONTOLOGIES/legal.yaml`            | 22 types | 22 types  | Documents juridiques, contrats |
+| `cloud`            | `ONTOLOGIES/cloud.yaml`            | —        | —         | Infrastructure cloud           |
+| `managed-services` | `ONTOLOGIES/managed-services.yaml` | —        | —         | Services managés               |
+| `technical`        | `ONTOLOGIES/technical.yaml`        | —        | —         | Documentation technique        |
 
 ### Format d'une ontologie
 
@@ -415,13 +421,13 @@ instructions: |
 
 En plus du protocole MCP (SSE), le service expose une API REST simple accessible sans authentification :
 
-| Méthode | Endpoint | Description |
-|---------|----------|-------------|
-| `GET` | `/health` | État de santé du serveur |
-| `GET` | `/graph` | Interface web de visualisation |
-| `GET` | `/api/memories` | Liste des mémoires (JSON) |
-| `GET` | `/api/graph/{memory_id}` | Graphe complet d'une mémoire (JSON) |
-| `POST` | `/api/ask` | Question/Réponse (JSON) |
+| Méthode | Endpoint                 | Description                         |
+| ------- | ------------------------ | ----------------------------------- |
+| `GET`   | `/health`                | État de santé du serveur            |
+| `GET`   | `/graph`                 | Interface web de visualisation      |
+| `GET`   | `/api/memories`          | Liste des mémoires (JSON)           |
+| `GET`   | `/api/graph/{memory_id}` | Graphe complet d'une mémoire (JSON) |
+| `POST`  | `/api/ask`               | Question/Réponse (JSON)             |
 
 ### Exemple : Question/Réponse via API REST
 
@@ -588,7 +594,10 @@ graph-memory/
     │   ├── storage.py        # Service S3 (upload/download via boto3)
     │   ├── extractor.py      # Service LLM (extraction d'entités + Q&A)
     │   ├── ontology.py       # Chargement des ontologies YAML
-    │   └── models.py         # Modèles Pydantic (Entity, Document, Memory…)
+    │   ├── models.py         # Modèles Pydantic (Entity, Document, Memory…)
+    │   ├── chunker.py        # SemanticChunker (découpage articles/sections)
+    │   ├── embedder.py       # EmbeddingService (BGE-M3 via LLMaaS)
+    │   └── vector_store.py   # VectorStoreService (Qdrant — recherche RAG)
     │
     ├── tools/                # Outils MCP (enregistrés dans server.py)
     │   └── __init__.py
@@ -669,9 +678,17 @@ docker compose build mcp-memory && docker compose up -d mcp-memory
   - `🔍 [Q&A] RAG` : mode (graph-guided/rag-only) + nombre de chunks + doc_ids filtrants
   - `📝 [Q&A] Contexte LLM` : taille graphe (chars) + taille RAG (chars) + nombre de docs
 - 🔧 **Qdrant épinglé v1.16.2** (`docker-compose.yml`) — Image Docker épinglée à `qdrant/qdrant:v1.16.2` au lieu de `latest` pour correspondre au client Python et éviter les warnings d'incompatibilité.
+- ✨ **Seuil de pertinence RAG** (`RAG_SCORE_THRESHOLD=0.65`) — Les chunks dont le score cosinus est inférieur au seuil configurable sont éliminés. Empêche d'envoyer du contexte non pertinent au LLM. Ajustable via `.env` (baisser à 0.5 pour être plus permissif).
+- ✨ **Limite de chunks configurable** (`RAG_CHUNK_LIMIT=8`) — Nombre max de chunks retournés par Qdrant, configurable via `.env`.
+- ✨ **Scores de similarité dans les logs** — Chaque chunk retenu affiche son score cosinus dans les logs Docker :
+  ```
+  📎 [1] score=0.7153 ✅ | RÉSILIATION SANS FAUTE | "texte..."
+  📎 [2] score=0.6539 ✅ | IMPRÉVISION | "texte..."
+  ```
 - ✨ **Stop words enrichis** — Ajout de `quel`, `quelle`, `quels`, `quelles`, `contient`, `corpus` pour des tokens plus pertinents.
+- 🏗️ **Nouveaux modules RAG** — `chunker.py` (SemanticChunker), `embedder.py` (EmbeddingService), `vector_store.py` (VectorStoreService Qdrant).
 
-**Fichiers modifiés :** `graph.py`, `server.py`, `docker-compose.yml`
+**Fichiers modifiés :** `graph.py`, `server.py`, `config.py`, `docker-compose.yml`, `.env.example`, `chunker.py`, `embedder.py`, `vector_store.py`, `models.py`, `requirements.txt`
 
 ### v0.5.1 — 9 février 2026
 

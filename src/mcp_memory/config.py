@@ -43,7 +43,7 @@ class Settings(BaseSettings):
     llmaas_api_key: str
     llmaas_model: str = "gpt-oss:120b"
     llmaas_max_tokens: int = 60000  # gpt-oss:120b fait du chain-of-thought qui consomme beaucoup de tokens
-    llmaas_temperature: float = 0.1  # Bas pour extraction déterministe
+    llmaas_temperature: float = 1.0  # gpt-oss:120b fonctionne mieux à température 1.0
     extraction_max_text_length: int = 950000  # Max chars du texte envoyé au LLM (défaut ~950K)
     
     # =========================================================================
