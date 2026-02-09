@@ -68,7 +68,8 @@ class TokenManager:
         client_name: str,
         permissions: List[str] = None,
         memory_ids: List[str] = None,
-        expires_in_days: Optional[int] = None
+        expires_in_days: Optional[int] = None,
+        email: Optional[str] = None
     ) -> str:
         """
         Crée un nouveau token pour un client.
@@ -78,6 +79,7 @@ class TokenManager:
             permissions: Liste des permissions (défaut: ["read", "write"])
             memory_ids: IDs des mémoires autorisées (vide = toutes)
             expires_in_days: Durée de validité en jours (None = pas d'expiration)
+            email: Adresse email du propriétaire du token (optionnel)
             
         Returns:
             Le token en clair (à fournir au client, ne sera plus accessible ensuite)
@@ -103,6 +105,7 @@ class TokenManager:
                 CREATE (t:Token {
                     hash: $hash,
                     client_name: $client_name,
+                    email: $email,
                     permissions: $permissions,
                     memory_ids: $memory_ids,
                     created_at: datetime(),
@@ -112,6 +115,7 @@ class TokenManager:
                 """,
                 hash=token_hash,
                 client_name=client_name,
+                email=email,
                 permissions=permissions,
                 memory_ids=memory_ids,
                 expires_at=expires_at.isoformat() if expires_at else None
@@ -164,6 +168,7 @@ class TokenManager:
             return TokenInfo(
                 token_hash=node["hash"],
                 client_name=node["client_name"],
+                email=node.get("email"),
                 permissions=node.get("permissions", []),
                 memory_ids=node.get("memory_ids", []),
                 created_at=node["created_at"].to_native() if node.get("created_at") else datetime.utcnow(),
@@ -230,6 +235,7 @@ class TokenManager:
                 tokens.append(TokenInfo(
                     token_hash=node["hash"],
                     client_name=node["client_name"],
+                    email=node.get("email"),
                     permissions=node.get("permissions", []),
                     memory_ids=node.get("memory_ids", []),
                     created_at=node["created_at"].to_native() if node.get("created_at") else datetime.utcnow(),
@@ -238,6 +244,77 @@ class TokenManager:
                 ))
             
             return tokens
+    
+    async def update_token_memories(
+        self,
+        token_hash: str,
+        add_memories: Optional[List[str]] = None,
+        remove_memories: Optional[List[str]] = None,
+        set_memories: Optional[List[str]] = None
+    ) -> Optional[dict]:
+        """
+        Met à jour les memory_ids autorisés d'un token.
+        
+        Trois modes d'utilisation (mutuellement exclusifs avec set_memories) :
+        - add_memories: Ajoute des mémoires à la liste existante
+        - remove_memories: Retire des mémoires de la liste existante
+        - set_memories: Remplace toute la liste (None = pas de changement, [] = accès à toutes)
+        
+        Args:
+            token_hash: Hash complet du token
+            add_memories: Mémoires à ajouter
+            remove_memories: Mémoires à retirer
+            set_memories: Remplacement complet de la liste
+            
+        Returns:
+            Dict avec les nouvelles memory_ids, ou None si token non trouvé
+        """
+        async with self.graph.session() as session:
+            # Récupérer le token
+            result = await session.run(
+                "MATCH (t:Token {hash: $hash, is_active: true}) RETURN t",
+                hash=token_hash
+            )
+            record = await result.single()
+            
+            if not record:
+                return None
+            
+            node = record["t"]
+            current_memories = list(node.get("memory_ids", []))
+            
+            if set_memories is not None:
+                # Mode remplacement total
+                new_memories = set_memories
+            else:
+                # Mode ajout/retrait incrémental
+                memory_set = set(current_memories)
+                
+                if add_memories:
+                    memory_set.update(add_memories)
+                if remove_memories:
+                    memory_set -= set(remove_memories)
+                
+                new_memories = sorted(memory_set)
+            
+            # Mettre à jour dans Neo4j
+            await session.run(
+                """
+                MATCH (t:Token {hash: $hash})
+                SET t.memory_ids = $memory_ids, t.updated_at = datetime()
+                """,
+                hash=token_hash,
+                memory_ids=new_memories
+            )
+            
+            print(f"🔑 [Auth] Token {token_hash[:8]}... mémoires mises à jour: {new_memories}", file=sys.stderr)
+            
+            return {
+                "token_hash": token_hash,
+                "client_name": node["client_name"],
+                "previous_memories": current_memories,
+                "current_memories": new_memories
+            }
     
     async def check_permission(
         self,

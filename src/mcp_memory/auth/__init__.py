@@ -7,6 +7,9 @@ Module d'authentification pour MCP Memory.
 """
 
 from .token_manager import TokenManager, get_token_manager
-from .middleware import AuthMiddleware
+from .middleware import AuthMiddleware, LoggingMiddleware, StaticFilesMiddleware
 
-__all__ = ["TokenManager", "get_token_manager", "AuthMiddleware"]
+__all__ = [
+    "TokenManager", "get_token_manager",
+    "AuthMiddleware", "LoggingMiddleware", "StaticFilesMiddleware",
+]

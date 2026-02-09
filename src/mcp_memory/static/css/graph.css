@@ -2,6 +2,121 @@
    MCP Memory - Visualisation du Graphe - Styles
    ========================================================================== */
 
+/* ═══════════════ LOGIN OVERLAY ═══════════════ */
+.login-overlay {
+    position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+    background: linear-gradient(135deg, #0a0f1a 0%, #1a2332 50%, #0d1b2a 100%);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 10000;
+    transition: opacity 0.4s ease;
+}
+.login-overlay.hidden { opacity: 0; pointer-events: none; }
+
+.login-card {
+    background: #1e2a3a;
+    border: 1px solid #41a890;
+    border-radius: 16px;
+    padding: 48px 40px;
+    width: 420px;
+    max-width: 90vw;
+    text-align: center;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5), 0 0 40px rgba(65,168,144,0.1);
+}
+.login-logo {
+    height: 48px;
+    margin-bottom: 16px;
+    filter: brightness(1.1);
+}
+.login-card h2 {
+    color: #fff;
+    font-size: 1.6rem;
+    font-weight: 600;
+    margin-bottom: 4px;
+}
+.login-subtitle {
+    color: #8899aa;
+    font-size: 0.85rem;
+    margin-bottom: 32px;
+}
+.login-form {
+    text-align: left;
+}
+.login-form label {
+    display: block;
+    color: #aabbcc;
+    font-size: 0.8rem;
+    margin-bottom: 8px;
+    font-weight: 500;
+}
+.login-form input {
+    width: 100%;
+    padding: 12px 14px;
+    background: #0d1b2a;
+    border: 1px solid #334455;
+    border-radius: 8px;
+    color: #e0e8f0;
+    font-size: 0.95rem;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    outline: none;
+    transition: border-color 0.2s;
+}
+.login-form input:focus {
+    border-color: #41a890;
+    box-shadow: 0 0 0 3px rgba(65,168,144,0.15);
+}
+.login-form input::placeholder {
+    color: #556677;
+}
+.login-error {
+    color: #e74c3c;
+    font-size: 0.8rem;
+    min-height: 24px;
+    padding: 4px 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.login-form button {
+    width: 100%;
+    padding: 12px;
+    background: #41a890;
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.1s;
+    margin-top: 4px;
+}
+.login-form button:hover { background: #369b82; }
+.login-form button:active { transform: scale(0.98); }
+.login-form button:disabled {
+    background: #334455;
+    cursor: wait;
+}
+.login-hint {
+    color: #556677;
+    font-size: 0.75rem;
+    margin-top: 24px;
+}
+
+/* Bouton logout dans le header */
+.btn-logout {
+    background: transparent !important;
+    border: 1px solid #555 !important;
+    padding: 4px 10px !important;
+    cursor: pointer;
+    font-size: 1rem;
+    border-radius: 4px;
+    transition: border-color 0.2s, background 0.2s;
+}
+.btn-logout:hover {
+    border-color: #e74c3c !important;
+    background: rgba(231,76,60,0.15) !important;
+}
+
+/* ═══════════════ RESET ═══════════════ */
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 body {

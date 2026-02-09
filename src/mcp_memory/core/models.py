@@ -172,6 +172,7 @@ class TokenInfo(BaseModel):
     """Information sur un token client."""
     token_hash: str = Field(..., description="Hash du token (pas le token lui-même)")
     client_name: str
+    email: Optional[str] = Field(None, description="Adresse email du propriétaire du token")
     created_at: datetime
     expires_at: Optional[datetime] = None
     permissions: List[str] = Field(default_factory=list)
@@ -182,6 +183,7 @@ class TokenInfo(BaseModel):
 class TokenCreateRequest(BaseModel):
     """Requête de création de token."""
     client_name: str
+    email: Optional[str] = Field(None, description="Adresse email du propriétaire")
     permissions: List[str] = Field(default_factory=lambda: ["read", "write"])
     memory_ids: List[str] = Field(default_factory=list)
     expires_in_days: Optional[int] = None

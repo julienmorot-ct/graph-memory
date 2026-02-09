@@ -38,7 +38,8 @@ from .display import (
     show_memories_table, show_documents_table, show_graph_summary,
     show_ingest_result, show_error, show_success, show_warning,
     show_answer, show_entity_context, show_storage_check,
-    show_cleanup_result, console
+    show_cleanup_result, show_tokens_table, show_token_created,
+    show_token_updated, console
 )
 
 # =============================================================================
@@ -788,6 +789,184 @@ def ask(ctx, memory_id, question, limit, debug):
                 show_answer(result.get("answer", ""), result.get("entities", []), result.get("source_documents", []))
             else:
                 show_error(result.get("message", "Erreur"))
+        except Exception as e:
+            show_error(str(e))
+    asyncio.run(_run())
+
+
+# =============================================================================
+# Token (gestion des tokens d'accès)
+# =============================================================================
+
+@cli.group()
+def token():
+    """🔑 Gérer les tokens d'accès clients."""
+    pass
+
+
+@token.command("list")
+@click.pass_context
+def token_list(ctx):
+    """📋 Lister tous les tokens actifs."""
+    async def _run():
+        try:
+            client = MCPClient(ctx.obj["url"], ctx.obj["token"])
+            result = await client.call_tool("admin_list_tokens", {})
+            if result.get("status") == "ok":
+                show_tokens_table(result.get("tokens", []))
+            else:
+                show_error(result.get("message", "Erreur"))
+        except Exception as e:
+            show_error(str(e))
+    asyncio.run(_run())
+
+
+@token.command("create")
+@click.argument("client_name")
+@click.option("--permissions", "-p", default="read,write", help="Permissions (virgules: read,write,admin)")
+@click.option("--memories", "-m", default="", help="Mémoires autorisées (virgules, vide=toutes)")
+@click.option("--email", default=None, help="Adresse email du propriétaire du token")
+@click.option("--expires", "-e", type=int, default=None, help="Expiration en jours")
+@click.pass_context
+def token_create(ctx, client_name, permissions, memories, email, expires):
+    """➕ Créer un token pour un client.
+
+    \b
+    Exemples:
+      token create quoteflow
+      token create quoteflow --email user@example.com
+      token create quoteflow -p read,write -m JURIDIQUE,CLOUD
+      token create admin-bot -p admin -e 30
+    """
+    async def _run():
+        try:
+            perms_list = [p.strip() for p in permissions.split(",") if p.strip()]
+            mem_list = [m.strip() for m in memories.split(",") if m.strip()]
+
+            client = MCPClient(ctx.obj["url"], ctx.obj["token"])
+            params = {
+                "client_name": client_name,
+                "permissions": perms_list,
+                "memory_ids": mem_list,
+            }
+            if email:
+                params["email"] = email
+            if expires:
+                params["expires_in_days"] = expires
+
+            result = await client.call_tool("admin_create_token", params)
+            if result.get("status") == "ok":
+                show_token_created(result)
+            else:
+                show_error(result.get("message", str(result)))
+        except Exception as e:
+            show_error(str(e))
+    asyncio.run(_run())
+
+
+@token.command("revoke")
+@click.argument("hash_prefix")
+@click.option("--force", "-f", is_flag=True, help="Pas de confirmation")
+@click.pass_context
+def token_revoke(ctx, hash_prefix, force):
+    """🚫 Révoquer un token (par préfixe de hash)."""
+    async def _run():
+        if not force and not Confirm.ask(f"[yellow]Révoquer le token '{hash_prefix}...' ?[/yellow]"):
+            console.print("[dim]Annulé.[/dim]")
+            return
+        try:
+            client = MCPClient(ctx.obj["url"], ctx.obj["token"])
+            result = await client.call_tool("admin_revoke_token", {"token_hash_prefix": hash_prefix})
+            if result.get("status") == "ok":
+                show_success(result.get("message", "Token révoqué"))
+            else:
+                show_error(result.get("message", str(result)))
+        except Exception as e:
+            show_error(str(e))
+    asyncio.run(_run())
+
+
+@token.command("grant")
+@click.argument("hash_prefix")
+@click.argument("memory_ids", nargs=-1, required=True)
+@click.pass_context
+def token_grant(ctx, hash_prefix, memory_ids):
+    """✅ Autoriser un token à accéder à des mémoires.
+
+    \b
+    Exemples:
+      token grant abc12345 JURIDIQUE CLOUD
+    """
+    async def _run():
+        try:
+            client = MCPClient(ctx.obj["url"], ctx.obj["token"])
+            result = await client.call_tool("admin_update_token", {
+                "token_hash_prefix": hash_prefix,
+                "add_memories": list(memory_ids),
+            })
+            if result.get("status") == "ok":
+                show_token_updated(result)
+            else:
+                show_error(result.get("message", str(result)))
+        except Exception as e:
+            show_error(str(e))
+    asyncio.run(_run())
+
+
+@token.command("ungrant")
+@click.argument("hash_prefix")
+@click.argument("memory_ids", nargs=-1, required=True)
+@click.pass_context
+def token_ungrant(ctx, hash_prefix, memory_ids):
+    """🚫 Retirer l'accès d'un token à des mémoires.
+
+    \b
+    Exemples:
+      token ungrant abc12345 JURIDIQUE
+    """
+    async def _run():
+        try:
+            client = MCPClient(ctx.obj["url"], ctx.obj["token"])
+            result = await client.call_tool("admin_update_token", {
+                "token_hash_prefix": hash_prefix,
+                "remove_memories": list(memory_ids),
+            })
+            if result.get("status") == "ok":
+                show_token_updated(result)
+            else:
+                show_error(result.get("message", str(result)))
+        except Exception as e:
+            show_error(str(e))
+    asyncio.run(_run())
+
+
+@token.command("set-memories")
+@click.argument("hash_prefix")
+@click.argument("memory_ids", nargs=-1)
+@click.pass_context
+def token_set_memories(ctx, hash_prefix, memory_ids):
+    """🔄 Remplacer la liste des mémoires d'un token.
+
+    \b
+    Sans argument : accès à TOUTES les mémoires.
+    Avec arguments : accès restreint aux mémoires listées.
+
+    \b
+    Exemples:
+      token set-memories abc12345 JURIDIQUE CLOUD   # Restreindre
+      token set-memories abc12345                     # Toutes les mémoires
+    """
+    async def _run():
+        try:
+            client = MCPClient(ctx.obj["url"], ctx.obj["token"])
+            result = await client.call_tool("admin_update_token", {
+                "token_hash_prefix": hash_prefix,
+                "set_memories": list(memory_ids),
+            })
+            if result.get("status") == "ok":
+                show_token_updated(result)
+            else:
+                show_error(result.get("message", str(result)))
         except Exception as e:
             show_error(str(e))
     asyncio.run(_run())

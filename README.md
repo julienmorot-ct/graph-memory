@@ -24,6 +24,7 @@ Développé par **[Cloud Temple](https://www.cloud-temple.com)**.
 - [Sécurité](#-sécurité)
 - [Structure du projet](#-structure-du-projet)
 - [Dépannage](#-dépannage)
+- [Changelog](#-changelog)
 - [Licence](#-licence)
 
 ---
@@ -650,6 +651,37 @@ docker compose build mcp-memory && docker compose up -d mcp-memory
 
 ---
 
+## 📋 Changelog
+
+### v0.5.1 — 9 février 2026
+
+**Tokens — Champ email + Hash complet**
+
+- ✨ Ajout du champ **email** (optionnel) lors de la création d'un token (`--email user@example.com`)
+- ✨ Affichage du **hash complet** (SHA256, 64 caractères) dans `token list` — directement copiable pour `token revoke`, `token grant`, etc.
+- ✨ Colonne **Email** dans la table `token list` (CLI Click + Shell)
+- ✨ Email affiché dans le panel de création de token
+- 🏗️ Création du fichier `VERSION` (0.5.1)
+- 📝 Mise à jour du `scripts/README.md` avec documentation complète de la CLI
+
+**Fichiers modifiés :** `models.py`, `token_manager.py`, `server.py`, `display.py`, `commands.py`, `shell.py`
+
+### v0.5.0 — Février 2026
+
+- 🎉 Version initiale publique
+- Extraction d'entités/relations guidée par ontologie (LLM)
+- Graphe de connaissances Neo4j avec isolation par namespace (multi-tenant)
+- Stockage S3 (Dell ECS, AWS, MinIO)
+- Interface web interactive (vis-network) avec filtrage avancé et panneau ASK
+- CLI complète (Click + Shell interactif avec prompt_toolkit)
+- Authentification Bearer Token avec gestion des tokens (create, revoke, grant, update)
+- Vérification et nettoyage cohérence S3/graphe
+- Question/Réponse avec citation des documents sources
+- 14 outils MCP exposés via HTTP/SSE
+- Support des formats : PDF, DOCX, Markdown, TXT, HTML, CSV
+
+---
+
 ## 📄 Licence
 
 Ce projet est distribué sous licence **Apache 2.0**. Voir le fichier [LICENSE](LICENSE) pour plus de détails.
@@ -658,4 +690,4 @@ Développé par **[Cloud Temple](https://www.cloud-temple.com)**.
 
 ---
 
-*Graph Memory v0.5.0 — Février 2026*
+*Graph Memory v0.5.1 — Février 2026*

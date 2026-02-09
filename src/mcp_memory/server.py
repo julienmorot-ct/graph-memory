@@ -23,6 +23,7 @@ from mcp.server.fastmcp import FastMCP
 
 from .config import get_settings
 from .auth.middleware import AuthMiddleware, LoggingMiddleware, StaticFilesMiddleware
+from .auth.context import check_memory_access, current_auth
 
 
 # =============================================================================
@@ -109,6 +110,11 @@ async def memory_create(
         Informations sur la mémoire créée
     """
     try:
+        # Vérifier l'accès à la mémoire
+        access_err = check_memory_access(memory_id)
+        if access_err:
+            return access_err
+        
         # Vérifier que l'ontologie existe et la récupérer
         from .core.ontology import get_ontology_manager
         ontology_manager = get_ontology_manager()
@@ -173,6 +179,11 @@ async def memory_delete(memory_id: str) -> dict:
         Statut de la suppression avec détails S3
     """
     try:
+        # Vérifier l'accès à la mémoire
+        access_err = check_memory_access(memory_id)
+        if access_err:
+            return access_err
+        
         # 1. Supprimer tous les fichiers S3 de la mémoire
         s3_result = {"deleted_count": 0, "error_count": 0}
         try:
@@ -236,6 +247,11 @@ async def memory_stats(memory_id: str) -> dict:
         Statistiques (documents, entités, relations, top entités)
     """
     try:
+        # Vérifier l'accès à la mémoire
+        access_err = check_memory_access(memory_id)
+        if access_err:
+            return access_err
+        
         stats = await get_graph().get_memory_stats(memory_id)
         return {
             "status": "ok",
@@ -280,6 +296,11 @@ async def memory_ingest(
         Résultat de l'ingestion avec statistiques
     """
     try:
+        # Vérifier l'accès à la mémoire
+        access_err = check_memory_access(memory_id)
+        if access_err:
+            return access_err
+        
         # Décoder le contenu
         content = base64.b64decode(content_base64)
         
@@ -487,6 +508,11 @@ async def memory_search(
         Entités trouvées avec leurs documents liés
     """
     try:
+        # Vérifier l'accès à la mémoire
+        access_err = check_memory_access(memory_id)
+        if access_err:
+            return access_err
+        
         # Recherche d'entités
         entities = await get_graph().search_entities(memory_id, search_query=query, limit=limit)
         
@@ -535,6 +561,11 @@ async def question_answer(
         Réponse générée avec les entités liées
     """
     try:
+        # Vérifier l'accès à la mémoire
+        access_err = check_memory_access(memory_id)
+        if access_err:
+            return access_err
+        
         # 1. Rechercher les entités pertinentes
         entities = await get_graph().search_entities(memory_id, search_query=question, limit=limit)
         
@@ -646,6 +677,11 @@ async def memory_get_context(
         Contexte complet de l'entité
     """
     try:
+        # Vérifier l'accès à la mémoire
+        access_err = check_memory_access(memory_id)
+        if access_err:
+            return access_err
+        
         context = await get_graph().get_entity_context(
             memory_id, entity_name, depth
         )
@@ -673,7 +709,8 @@ async def admin_create_token(
     client_name: str,
     permissions: Optional[List[str]] = None,
     memory_ids: Optional[List[str]] = None,
-    expires_in_days: Optional[int] = None
+    expires_in_days: Optional[int] = None,
+    email: Optional[str] = None
 ) -> dict:
     """
     Crée un nouveau token d'accès pour un client.
@@ -685,6 +722,7 @@ async def admin_create_token(
         permissions: Permissions ["read", "write", "admin"]
         memory_ids: IDs des mémoires autorisées (vide = toutes)
         expires_in_days: Expiration en jours (optionnel)
+        email: Adresse email du propriétaire (optionnel)
         
     Returns:
         Token généré (à conserver précieusement)
@@ -694,12 +732,14 @@ async def admin_create_token(
             client_name=client_name,
             permissions=permissions or ["read", "write"],
             memory_ids=memory_ids or [],
-            expires_in_days=expires_in_days
+            expires_in_days=expires_in_days,
+            email=email
         )
         
         return {
             "status": "ok",
             "client_name": client_name,
+            "email": email,
             "token": token,
             "permissions": permissions or ["read", "write"],
             "memory_ids": memory_ids or [],
@@ -729,11 +769,12 @@ async def admin_list_tokens() -> dict:
             "tokens": [
                 {
                     "client_name": t.client_name,
+                    "email": t.email,
                     "permissions": t.permissions,
                     "memory_ids": t.memory_ids,
                     "created_at": t.created_at.isoformat() if t.created_at else None,
                     "expires_at": t.expires_at.isoformat() if t.expires_at else None,
-                    "token_hash_prefix": t.token_hash[:8] + "..."
+                    "token_hash": t.token_hash
                 }
                 for t in tokens
             ]
@@ -780,6 +821,79 @@ async def admin_revoke_token(token_hash_prefix: str) -> dict:
         return {"status": "error", "message": str(e)}
 
 
+@mcp.tool()
+async def admin_update_token(
+    token_hash_prefix: str,
+    add_memories: Optional[List[str]] = None,
+    remove_memories: Optional[List[str]] = None,
+    set_memories: Optional[List[str]] = None
+) -> dict:
+    """
+    Met à jour les mémoires autorisées d'un token.
+    
+    Trois modes (mutuellement exclusifs avec set_memories) :
+    - add_memories: Ajoute des mémoires à la liste existante
+    - remove_memories: Retire des mémoires de la liste existante
+    - set_memories: Remplace toute la liste ([] = accès à TOUTES les mémoires)
+    
+    Args:
+        token_hash_prefix: Début du hash du token (8+ caractères)
+        add_memories: Mémoires à ajouter (ex: ["JURIDIQUE", "CLOUD"])
+        remove_memories: Mémoires à retirer (ex: ["JURIDIQUE"])
+        set_memories: Remplacer toute la liste (ex: ["CLOUD"], ou [] pour tout autoriser)
+        
+    Returns:
+        Anciennes et nouvelles mémoires autorisées
+    """
+    try:
+        # Trouver le token par son préfixe
+        tokens = await get_tokens().list_tokens(include_revoked=False)
+        matching = [t for t in tokens if t.token_hash.startswith(token_hash_prefix)]
+        
+        if not matching:
+            return {"status": "error", "message": "Token non trouvé"}
+        
+        if len(matching) > 1:
+            return {"status": "error", "message": "Préfixe ambigu, soyez plus précis"}
+        
+        # Vérifier que les mémoires existent (si on en ajoute)
+        memories_to_check = (add_memories or []) + (set_memories or [])
+        if memories_to_check:
+            existing_memories = await get_graph().list_memories()
+            existing_ids = {m.id for m in existing_memories}
+            unknown = [m for m in memories_to_check if m not in existing_ids]
+            if unknown:
+                return {
+                    "status": "error",
+                    "message": f"Mémoires inconnues: {unknown}. Disponibles: {sorted(existing_ids)}"
+                }
+        
+        # Mettre à jour
+        result = await get_tokens().update_token_memories(
+            token_hash=matching[0].token_hash,
+            add_memories=add_memories,
+            remove_memories=remove_memories,
+            set_memories=set_memories
+        )
+        
+        if result:
+            return {
+                "status": "ok",
+                "client_name": result["client_name"],
+                "token_hash_prefix": result["token_hash"][:8] + "...",
+                "previous_memories": result["previous_memories"],
+                "current_memories": result["current_memories"],
+                "message": (
+                    "Accès à toutes les mémoires" if not result["current_memories"]
+                    else f"Accès restreint à: {result['current_memories']}"
+                )
+            }
+        return {"status": "error", "message": "Token non trouvé ou inactif"}
+        
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
 # =============================================================================
 # OUTILS MCP - Diagnostic
 # =============================================================================
@@ -802,6 +916,11 @@ async def memory_graph(memory_id: str, format: str = "full") -> dict:
         documents: Liste des documents avec id, filename, uri S3
     """
     try:
+        # Vérifier l'accès à la mémoire
+        access_err = check_memory_access(memory_id)
+        if access_err:
+            return access_err
+        
         graph_data = await get_graph().get_full_graph(memory_id)
         
         if format == "nodes":
@@ -931,6 +1050,11 @@ async def document_delete(memory_id: str, document_id: str) -> dict:
         Statut de la suppression avec compteurs (graphe + S3)
     """
     try:
+        # Vérifier l'accès à la mémoire
+        access_err = check_memory_access(memory_id)
+        if access_err:
+            return access_err
+        
         # 1. Récupérer l'URI S3 avant suppression du graphe
         doc_info = await get_graph().get_document(memory_id, document_id)
         s3_deleted = False
@@ -1247,13 +1371,11 @@ def main():
     # Récupérer l'app ASGI de FastMCP
     base_app = mcp.sse_app()
     
-    # Empiler les middlewares avec support fichiers statiques
-    # 1. Auth (vérifie le token)
-    # 2. Logging (si debug)
-    # 3. Static files (page de visualisation)
-    app = AuthMiddleware(base_app, debug=args.debug)
+    # Empiler les middlewares (le dernier wrappé est le premier exécuté)
+    # Flux requête : AuthMiddleware → LoggingMiddleware → StaticFilesMiddleware → MCP app
+    app = StaticFilesMiddleware(base_app)
     app = LoggingMiddleware(app, debug=args.debug)
-    app = StaticFilesMiddleware(app)
+    app = AuthMiddleware(app, debug=args.debug)
     
     # Afficher le banner
     print("=" * 70, file=sys.stderr)
@@ -1265,7 +1387,7 @@ def main():
     print("Outils disponibles:", file=sys.stderr)
     print("  - memory_create, memory_delete, memory_list, memory_stats", file=sys.stderr)
     print("  - memory_ingest, memory_search, memory_get_context", file=sys.stderr)
-    print("  - admin_create_token, admin_list_tokens, admin_revoke_token", file=sys.stderr)
+    print("  - admin_create_token, admin_list_tokens, admin_revoke_token, admin_update_token", file=sys.stderr)
     print("  - storage_check, storage_cleanup, system_health", file=sys.stderr)
     print("=" * 70, file=sys.stderr)
     

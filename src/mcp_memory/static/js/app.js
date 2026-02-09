@@ -1,27 +1,150 @@
 /**
  * MCP Memory - Orchestration et initialisation
  *
- * Point d'entrée : charge les mémoires, connecte les événements,
- * gère le chargement du graphe, la modale paramètres, et le mode isolation.
+ * Point d'entrée : authentification, chargement des mémoires,
+ * connexion des événements, gestion du graphe, modale paramètres.
  */
 
-/** Charge la liste des mémoires dans le select */
-async function initMemories() {
+// ═══════════════ AUTHENTIFICATION ═══════════════
+
+/** Affiche l'écran de login avec un message d'erreur optionnel */
+function showLoginScreen(errorMsg = '') {
+    const overlay = document.getElementById('loginOverlay');
+    overlay.classList.remove('hidden');
+    const errorEl = document.getElementById('loginError');
+    errorEl.textContent = errorMsg ? `❌ ${errorMsg}` : '';
+    document.getElementById('loginToken').focus();
+}
+
+/** Masque l'écran de login */
+function hideLoginScreen() {
+    document.getElementById('loginOverlay').classList.add('hidden');
+}
+
+/** Tente de se connecter avec le token saisi */
+async function attemptLogin() {
+    const input = document.getElementById('loginToken');
+    const btn = document.getElementById('loginBtn');
+    const errorEl = document.getElementById('loginError');
+    const token = input.value.trim();
+
+    if (!token) {
+        errorEl.textContent = '❌ Veuillez saisir un token.';
+        return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'Connexion…';
+    errorEl.textContent = '';
+
     try {
-        const result = await apiLoadMemories();
-        const select = document.getElementById('memorySelect');
-        if (result.status === 'ok') {
-            result.memories.forEach(m => {
-                const opt = document.createElement('option');
-                opt.value = m.id;
-                opt.textContent = `${m.id} — ${m.name}`;
-                select.appendChild(opt);
-            });
+        // Tester le token en appelant /api/memories
+        const response = await fetch('/api/memories', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+
+        if (response.status === 401) {
+            errorEl.textContent = '❌ Token invalide ou expiré.';
+            return;
         }
+
+        if (!response.ok) {
+            errorEl.textContent = `❌ Erreur serveur (${response.status}).`;
+            return;
+        }
+
+        const result = await response.json();
+        if (result.status !== 'ok') {
+            errorEl.textContent = `❌ ${result.message || 'Erreur inconnue.'}`;
+            return;
+        }
+
+        // Token valide ! Stocker et continuer
+        setAuthToken(token);
+        hideLoginScreen();
+        input.value = '';
+
+        // Charger les mémoires dans le select
+        populateMemories(result);
+
     } catch (e) {
-        console.error('Erreur chargement mémoires:', e);
+        errorEl.textContent = `❌ Impossible de contacter le serveur.`;
+        console.error('Login error:', e);
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Se connecter';
     }
 }
+
+/** Déconnexion : efface le token et affiche le login */
+function logout() {
+    clearAuthToken();
+    // Réinitialiser l'état
+    appState.currentData = null;
+    appState.currentMemory = null;
+    appState.network = null;
+    document.getElementById('memorySelect').innerHTML = '<option value="">-- Mémoire --</option>';
+    document.getElementById('askBtn').disabled = true;
+    document.getElementById('loadBtn').disabled = true;
+    showLoginScreen();
+}
+
+/** Vérifie si un token existe et est valide au chargement */
+async function checkExistingToken() {
+    const token = getAuthToken();
+
+    if (!token) {
+        showLoginScreen();
+        return;
+    }
+
+    try {
+        const result = await apiLoadMemories();
+        if (result.status === 'ok') {
+            hideLoginScreen();
+            populateMemories(result);
+        } else {
+            showLoginScreen('Token invalide.');
+        }
+    } catch (e) {
+        // Si c'est un 401, showLoginScreen est déjà appelé par authFetch
+        if (e.message !== 'Unauthorized') {
+            showLoginScreen('Impossible de contacter le serveur.');
+        }
+    }
+}
+
+/** Remplit le select des mémoires à partir d'un résultat API */
+function populateMemories(result) {
+    const select = document.getElementById('memorySelect');
+    // Vider (garder l'option par défaut)
+    select.innerHTML = '<option value="">-- Mémoire --</option>';
+    if (result.memories) {
+        result.memories.forEach(m => {
+            const opt = document.createElement('option');
+            opt.value = m.id;
+            opt.textContent = `${m.id} — ${m.name}`;
+            select.appendChild(opt);
+        });
+    }
+}
+
+// ═══════════════ SETUP LOGIN ═══════════════
+
+function setupLogin() {
+    // Bouton Se connecter
+    document.getElementById('loginBtn').addEventListener('click', attemptLogin);
+
+    // Entrée dans le champ token → submit
+    document.getElementById('loginToken').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') attemptLogin();
+    });
+
+    // Bouton logout
+    document.getElementById('logoutBtn').addEventListener('click', logout);
+}
+
+// ═══════════════ CHARGEMENT DU GRAPHE ═══════════════
 
 /** Charge le graphe de la mémoire sélectionnée */
 async function loadSelectedGraph() {
@@ -55,16 +178,19 @@ async function loadSelectedGraph() {
         exitIsolation();
 
     } catch (e) {
-        console.error('Erreur:', e);
-        alert('Erreur: ' + e.message);
+        if (e.message !== 'Unauthorized') {
+            console.error('Erreur:', e);
+            alert('Erreur: ' + e.message);
+        }
     } finally {
         loading.style.display = 'none';
     }
 }
 
+// ═══════════════ SETUP CONTRÔLES ═══════════════
+
 /** Setup des contrôles header */
 function setupHeaderControls() {
-    // Select mémoire → activer bouton Charger
     document.getElementById('memorySelect').addEventListener('change', function () {
         document.getElementById('loadBtn').disabled = !this.value;
     });
@@ -85,7 +211,6 @@ function setupSettingsModal() {
     document.getElementById('settingsBtn').addEventListener('click', () => modal.classList.add('visible'));
     modal.addEventListener('click', e => { if (e.target === modal) modal.classList.remove('visible'); });
 
-    // Sliders → affichage valeur
     const sliders = [
         { id: 'paramSpringLength', valId: 'valSpringLength', prefix: '' },
         { id: 'paramGravity', valId: 'valGravity', prefix: '-' },
@@ -98,7 +223,6 @@ function setupSettingsModal() {
         });
     });
 
-    // Reset
     document.getElementById('resetParams').addEventListener('click', () => {
         document.getElementById('paramSpringLength').value = DEFAULT_PARAMS.springLength;
         document.getElementById('paramGravity').value = DEFAULT_PARAMS.gravity;
@@ -110,23 +234,25 @@ function setupSettingsModal() {
         document.getElementById('valFontSize').textContent = DEFAULT_PARAMS.fontSize;
     });
 
-    // Appliquer
     document.getElementById('applyParams').addEventListener('click', () => {
         currentParams.springLength = parseInt(document.getElementById('paramSpringLength').value);
         currentParams.gravity = parseInt(document.getElementById('paramGravity').value);
         currentParams.nodeSize = parseInt(document.getElementById('paramNodeSize').value);
         currentParams.fontSize = parseInt(document.getElementById('paramFontSize').value);
         modal.classList.remove('visible');
-        // Ré-appliquer les filtres avec les nouveaux paramètres de rendu
         applyFilters();
     });
 }
 
-/** Initialisation au chargement de la page */
+// ═══════════════ INITIALISATION ═══════════════
+
 document.addEventListener('DOMContentLoaded', () => {
-    initMemories();
+    setupLogin();
     setupHeaderControls();
     setupSettingsModal();
     setupSearchFilter();
     setupAsk();
+
+    // Vérifier le token existant (ou afficher le login)
+    checkExistingToken();
 });

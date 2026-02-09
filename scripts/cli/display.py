@@ -399,6 +399,76 @@ def _format_size(size_bytes: int) -> str:
     return f"{size_bytes:.1f} TB"
 
 
+# =============================================================================
+# Affichage des tokens
+# =============================================================================
+
+def show_tokens_table(tokens: List[dict]):
+    """Affiche la liste des tokens dans un tableau."""
+    if not tokens:
+        console.print("[yellow]Aucun token trouvé.[/yellow]")
+        return
+
+    table = Table(title=f"🔑 Tokens ({len(tokens)})", show_header=True)
+    table.add_column("Client", style="cyan bold", no_wrap=True)
+    table.add_column("Email", style="white", max_width=25)
+    table.add_column("Hash (ID)", style="yellow", no_wrap=True)
+    table.add_column("Permissions", style="magenta")
+    table.add_column("Mémoires", style="green")
+    table.add_column("Créé le", style="dim", width=12)
+    table.add_column("Expire", style="dim", width=12)
+
+    for t in tokens:
+        perms = ", ".join(t.get("permissions", []))
+        memories = t.get("memory_ids", [])
+        mem_str = ", ".join(memories) if memories else "[dim]toutes[/dim]"
+        created = (t.get("created_at") or "")[:10]
+        expires = (t.get("expires_at") or "jamais")[:10]
+        email = t.get("email") or "[dim]-[/dim]"
+        token_hash = t.get("token_hash", t.get("token_hash_prefix", "?"))
+
+        table.add_row(
+            t.get("client_name", "?"),
+            email,
+            token_hash,
+            perms,
+            mem_str,
+            created,
+            expires,
+        )
+
+    console.print(table)
+    console.print("[dim]💡 Copiez le Hash pour: token revoke <hash>, token grant <hash> ...[/dim]")
+
+
+def show_token_created(result: dict):
+    """Affiche le résultat de création d'un token."""
+    email_line = f"\n[bold]Email:[/bold]       [white]{result['email']}[/white]" if result.get('email') else ""
+    console.print(Panel.fit(
+        f"[bold]Client:[/bold]      [cyan]{result.get('client_name', '?')}[/cyan]{email_line}\n"
+        f"[bold]Token:[/bold]       [green bold]{result.get('token', '?')}[/green bold]\n"
+        f"[bold]Permissions:[/bold] [magenta]{', '.join(result.get('permissions', []))}[/magenta]\n"
+        f"[bold]Mémoires:[/bold]    {', '.join(result.get('memory_ids', [])) or '[dim]toutes[/dim]'}",
+        title="🔑 Token créé",
+        border_style="green",
+    ))
+    console.print("[yellow]⚠️  Conservez ce token précieusement, il ne sera plus affiché ![/yellow]")
+
+
+def show_token_updated(result: dict):
+    """Affiche le résultat d'une mise à jour de token."""
+    prev = result.get("previous_memories", [])
+    curr = result.get("current_memories", [])
+    console.print(Panel.fit(
+        f"[bold]Client:[/bold]      [cyan]{result.get('client_name', '?')}[/cyan]\n"
+        f"[bold]Hash:[/bold]        [dim]{result.get('token_hash_prefix', '?')}[/dim]\n"
+        f"[bold]Avant:[/bold]       {', '.join(prev) if prev else '[dim]toutes[/dim]'}\n"
+        f"[bold]Après:[/bold]       {', '.join(curr) if curr else '[dim]toutes[/dim]'}",
+        title="🔑 Token mis à jour",
+        border_style="cyan",
+    ))
+
+
 def show_answer(answer: str, entities: list = None, source_documents: list = None):
     """Affiche une réponse Q&A avec les documents sources."""
     console.print(Panel.fit(

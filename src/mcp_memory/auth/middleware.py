@@ -10,6 +10,7 @@ import sys
 from typing import Optional
 
 from ..config import get_settings
+from .context import current_auth
 
 
 class AuthMiddleware:
@@ -51,16 +52,17 @@ class AuthMiddleware:
         path = scope.get("path", "")
         
         # Endpoints publics (pas d'auth requise)
-        public_paths = ["/health", "/healthz", "/ready", "/graph", "/static/", "/api/"]
+        # Note: /api/ N'EST PLUS public — nécessite un token Bearer
+        public_paths = ["/health", "/healthz", "/ready", "/graph", "/static/"]
         if any(path.startswith(p) for p in public_paths):
             await self.app(scope, receive, send)
             return
         
-        # Requêtes internes (localhost) : pas d'auth requise
-        # (reconnexions SSE internes, health checks, etc.)
+        # Requêtes internes (localhost) : pas d'auth pour MCP/SSE
+        # MAIS les endpoints /api/ exigent toujours un token (pour le client web)
         client = scope.get("client", ("", 0))
         client_ip = client[0] if client else ""
-        if client_ip in ("127.0.0.1", "::1"):
+        if client_ip in ("127.0.0.1", "::1") and not path.startswith("/api/"):
             await self.app(scope, receive, send)
             return
         
@@ -95,6 +97,8 @@ class AuthMiddleware:
                 "permissions": ["admin", "read", "write"],
                 "memory_ids": []  # Accès à toutes
             }
+            # Propager le contexte d'auth pour les outils MCP
+            current_auth.set(scope["auth"])
             await self.app(scope, receive, send)
             return
         
@@ -120,6 +124,8 @@ class AuthMiddleware:
                 "token_hash": token_info.token_hash
             }
             
+            # Propager le contexte d'auth pour les outils MCP
+            current_auth.set(scope["auth"])
             await self.app(scope, receive, send)
             
         except Exception as e:

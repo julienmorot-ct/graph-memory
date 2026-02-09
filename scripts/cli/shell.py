@@ -50,9 +50,10 @@ from rich.markdown import Markdown
 from .client import MCPClient
 from .display import (
     show_memories_table, show_documents_table, show_graph_summary,
-    show_entity_context, show_ingest_result, show_error, show_success,
-    show_warning, show_answer, show_storage_check, show_cleanup_result,
-    console
+    show_ingest_result, show_error, show_success, show_warning,
+    show_answer, show_entity_context, show_storage_check,
+    show_cleanup_result, show_tokens_table, show_token_created,
+    show_token_updated, console
 )
 
 
@@ -65,6 +66,8 @@ SHELL_COMMANDS = [
     "help", "health", "list", "use", "info", "graph", "docs",
     "entities", "entity", "relations", "ask", "check", "cleanup",
     "create", "ingest", "ingestdir", "deldoc", "ontologies",
+    "tokens", "token-create", "token-revoke", "token-grant",
+    "token-ungrant", "token-set",
     "limit", "delete", "debug", "clear", "exit", "quit",
 ]
 
@@ -769,6 +772,183 @@ async def cmd_ontologies(client: MCPClient, state: dict):
         show_error(result.get("message", "Erreur"))
 
 
+# =============================================================================
+# Handlers token
+# =============================================================================
+
+async def cmd_tokens(client: MCPClient, state: dict):
+    """Liste tous les tokens actifs."""
+    result = await client.call_tool("admin_list_tokens", {})
+    if result.get("status") == "ok":
+        show_tokens_table(result.get("tokens", []))
+    else:
+        show_error(result.get("message", "Erreur"))
+
+
+async def cmd_token_create(client: MCPClient, state: dict, args: str):
+    """
+    Crée un token pour un client.
+
+    Usage: token-create <client_name> [perms] [memories] [--email addr]
+    Exemples:
+        token-create quoteflow
+        token-create quoteflow --email user@example.com
+        token-create quoteflow read,write JURIDIQUE,CLOUD --email user@example.com
+        token-create admin-bot admin
+    """
+    if not args:
+        show_warning("Usage: token-create <client_name> [permissions] [memories] [--email addr]")
+        console.print("[dim]Exemples:[/dim]")
+        console.print("[dim]  token-create quoteflow[/dim]")
+        console.print("[dim]  token-create quoteflow --email user@example.com[/dim]")
+        console.print("[dim]  token-create quoteflow read,write JURIDIQUE,CLOUD --email user@example.com[/dim]")
+        return
+
+    # Extraire --email si présent
+    email = None
+    if "--email" in args:
+        idx = args.index("--email")
+        after = args[idx + 7:].strip()
+        email_parts = after.split(maxsplit=1)
+        if email_parts:
+            email = email_parts[0]
+            # Reconstruire args sans --email et sa valeur
+            args = args[:idx].strip()
+            if len(email_parts) > 1:
+                args += " " + email_parts[1]
+            args = args.strip()
+
+    parts = args.split() if args else []
+    if not parts:
+        show_warning("Usage: token-create <client_name> [permissions] [memories] [--email addr]")
+        return
+
+    client_name = parts[0]
+    perms = parts[1].split(",") if len(parts) > 1 else ["read", "write"]
+    memories = parts[2].split(",") if len(parts) > 2 else []
+
+    params = {
+        "client_name": client_name,
+        "permissions": perms,
+        "memory_ids": memories,
+    }
+    if email:
+        params["email"] = email
+
+    result = await client.call_tool("admin_create_token", params)
+    if result.get("status") == "ok":
+        show_token_created(result)
+    else:
+        show_error(result.get("message", str(result)))
+
+
+async def cmd_token_revoke(client: MCPClient, state: dict, args: str):
+    """Révoque un token par préfixe de hash."""
+    from rich.prompt import Confirm
+
+    if not args:
+        show_warning("Usage: token-revoke <hash_prefix>")
+        console.print("[dim]Utilisez 'tokens' pour voir les préfixes de hash.[/dim]")
+        return
+
+    hash_prefix = args.strip()
+    if not Confirm.ask(f"[yellow]Révoquer le token '{hash_prefix}...' ?[/yellow]"):
+        console.print("[dim]Annulé.[/dim]")
+        return
+
+    result = await client.call_tool("admin_revoke_token", {"token_hash_prefix": hash_prefix})
+    if result.get("status") == "ok":
+        show_success(result.get("message", "Token révoqué"))
+    else:
+        show_error(result.get("message", str(result)))
+
+
+async def cmd_token_grant(client: MCPClient, state: dict, args: str):
+    """
+    Ajoute des mémoires à un token.
+
+    Usage: token-grant <hash_prefix> <memory1> [memory2] ...
+    """
+    if not args:
+        show_warning("Usage: token-grant <hash_prefix> <memory1> [memory2] ...")
+        return
+
+    parts = args.split()
+    if len(parts) < 2:
+        show_warning("Usage: token-grant <hash_prefix> <memory1> [memory2] ...")
+        return
+
+    hash_prefix = parts[0]
+    memories = parts[1:]
+
+    result = await client.call_tool("admin_update_token", {
+        "token_hash_prefix": hash_prefix,
+        "add_memories": memories,
+    })
+    if result.get("status") == "ok":
+        show_token_updated(result)
+    else:
+        show_error(result.get("message", str(result)))
+
+
+async def cmd_token_ungrant(client: MCPClient, state: dict, args: str):
+    """
+    Retire des mémoires d'un token.
+
+    Usage: token-ungrant <hash_prefix> <memory1> [memory2] ...
+    """
+    if not args:
+        show_warning("Usage: token-ungrant <hash_prefix> <memory1> [memory2] ...")
+        return
+
+    parts = args.split()
+    if len(parts) < 2:
+        show_warning("Usage: token-ungrant <hash_prefix> <memory1> [memory2] ...")
+        return
+
+    hash_prefix = parts[0]
+    memories = parts[1:]
+
+    result = await client.call_tool("admin_update_token", {
+        "token_hash_prefix": hash_prefix,
+        "remove_memories": memories,
+    })
+    if result.get("status") == "ok":
+        show_token_updated(result)
+    else:
+        show_error(result.get("message", str(result)))
+
+
+async def cmd_token_set(client: MCPClient, state: dict, args: str):
+    """
+    Remplace la liste complète des mémoires d'un token.
+
+    Usage: token-set <hash_prefix> [memory1] [memory2] ...
+    Sans mémoire = accès à TOUTES les mémoires.
+    """
+    if not args:
+        show_warning("Usage: token-set <hash_prefix> [memory1] [memory2] ...")
+        console.print("[dim]Sans mémoire = accès à toutes les mémoires[/dim]")
+        return
+
+    parts = args.split()
+    hash_prefix = parts[0]
+    memories = parts[1:] if len(parts) > 1 else []
+
+    result = await client.call_tool("admin_update_token", {
+        "token_hash_prefix": hash_prefix,
+        "set_memories": memories,
+    })
+    if result.get("status") == "ok":
+        show_token_updated(result)
+    else:
+        show_error(result.get("message", str(result)))
+
+
+# =============================================================================
+# Handlers divers
+# =============================================================================
+
 async def cmd_delete(client: MCPClient, state: dict, args: str):
     """Supprime une mémoire ou un document."""
     from rich.prompt import Confirm
@@ -834,6 +1014,13 @@ def run_shell(url: str, token: str):
         "cleanup":      "Lister les orphelins S3 (--force pour supprimer)",
         # --- Ontologies ---
         "ontologies":   "Lister les ontologies disponibles",
+        # --- Tokens ---
+        "tokens":           "Lister les tokens actifs",
+        "token-create <c>": "Créer un token (ex: token-create quoteflow read,write JURIDIQUE)",
+        "token-revoke <h>": "Révoquer un token (par préfixe de hash)",
+        "token-grant <h> <m>":  "Autoriser un token à accéder à des mémoires",
+        "token-ungrant <h> <m>":"Retirer l'accès d'un token à des mémoires",
+        "token-set <h> [m]":    "Remplacer les mémoires d'un token (vide=toutes)",
         # --- Config ---
         "limit [N]":    "Voir/changer le limit de recherche (défaut: 10)",
         "debug":        "Activer/désactiver le debug",
@@ -952,6 +1139,25 @@ def run_shell(url: str, token: str):
 
             elif command == "ontologies":
                 asyncio.run(cmd_ontologies(client, state))
+
+            # --- Token commands ---
+            elif command == "tokens":
+                asyncio.run(cmd_tokens(client, state))
+
+            elif command == "token-create":
+                asyncio.run(cmd_token_create(client, state, args))
+
+            elif command == "token-revoke":
+                asyncio.run(cmd_token_revoke(client, state, args))
+
+            elif command == "token-grant":
+                asyncio.run(cmd_token_grant(client, state, args))
+
+            elif command == "token-ungrant":
+                asyncio.run(cmd_token_ungrant(client, state, args))
+
+            elif command == "token-set":
+                asyncio.run(cmd_token_set(client, state, args))
 
             else:
                 show_error(f"Commande inconnue: '{command}'. Tapez 'help'.")
