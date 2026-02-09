@@ -129,9 +129,9 @@ Question en langage naturel
                                │ HTTP/SSE + Bearer Token
                                ▼
 ┌──────────────────────────────────────────────────────────────────────┐
-│                    Graph Memory Service (Port 8002)                    │
+│                    Graph Memory Service (Port 8002)                  │
 │  ┌────────────────────────────────────────────────────────────────┐  │
-│  │  Middleware Layer                                               │  │
+│  │  Middleware Layer                                              │  │
 │  │  • StaticFilesMiddleware (web UI + API REST)                   │  │
 │  │  • LoggingMiddleware (debug)                                   │  │
 │  │  • AuthMiddleware (Bearer Token)                               │  │
@@ -147,7 +147,7 @@ Question en langage naturel
 │  │  • system_health                                               │  │
 │  └────────────────────────────────────────────────────────────────┘  │
 │  ┌────────────────────────────────────────────────────────────────┐  │
-│  │  Core Services                                                  │  │
+│  │  Core Services                                                 │  │
 │  │  • GraphService (Neo4j)    • StorageService (S3)               │  │
 │  │  • ExtractorService (LLM)  • TokenManager (Auth)               │  │
 │  │  • EmbeddingService (BGE)  • VectorStoreService (Qdrant)       │  │
