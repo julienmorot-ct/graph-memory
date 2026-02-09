@@ -34,17 +34,39 @@ Développé par **[Cloud Temple](https://www.cloud-temple.com)**.
 L'approche **Graph-First** : au lieu du RAG vectoriel classique (embedding → similitude cosinus), ce service extrait des **entités** et **relations** structurées via un LLM pour construire un graphe de connaissances interrogeable.
 
 ```
+╔══════════════════════════════════════════════════════════════╗
+║  INGESTION                                                   ║
+╚══════════════════════════════════════════════════════════════╝
 Document (PDF, DOCX, MD, TXT, HTML, CSV)
     │
-    ▼ Upload S3 + Extraction LLM guidée par ontologie
+    ├──▶ Upload S3 (stockage pérenne)
     │
-    ▼ Entités + Relations typées + Documents sources
+    ├──▶ Extraction LLM guidée par ontologie
+    │    └──▶ Entités + Relations typées → Graphe Neo4j
     │
-    ▼ Graphe Neo4j (namespace isolé par mémoire)
-    │
+    └──▶ Chunking sémantique + Embedding BGE-M3
+         └──▶ Vecteurs → Qdrant (base vectorielle)
+
+╔══════════════════════════════════════════════════════════════╗
+║  QUESTION / RÉPONSE (Graph-Guided RAG)                       ║
+╚══════════════════════════════════════════════════════════════╝
 Question en langage naturel
     │
-    ▼ Recherche dans le graphe → Contexte structuré → LLM → Réponse avec sources
+    ▼ 1. Recherche d'entités dans le graphe Neo4j
+    │
+    ├── Entités trouvées ? ──▶ Graph-Guided RAG
+    │   │  Le graphe identifie les documents pertinents,
+    │   │  puis Qdrant recherche les chunks DANS ces documents.
+    │   └──▶ Contexte ciblé (graphe + chunks filtrés)
+    │
+    └── 0 entités ? ──▶ RAG-only (fallback)
+        │  Qdrant recherche dans TOUS les chunks de la mémoire.
+        └──▶ Contexte large (chunks seuls)
+    │
+    ▼ 2. Filtrage par seuil de pertinence (score cosinus ≥ 0.65)
+    │    Les chunks non pertinents sont éliminés.
+    │
+    ▼ 3. LLM génère la réponse avec citations des documents sources
 ```
 
 ### Pourquoi un graphe plutôt que du RAG vectoriel ?
@@ -73,8 +95,10 @@ Question en langage naturel
 - Entités liées à leurs documents sources (`MENTIONS`)
 - Recherche par tokens avec stop words français
 
-### Question/Réponse
-- Question en langage naturel → recherche dans le graphe → contexte enrichi → réponse LLM
+### Question/Réponse (Graph-Guided RAG)
+- **Graph-Guided RAG** : le graphe identifie les documents pertinents, puis Qdrant recherche les chunks *dans* ces documents — contexte précis et ciblé
+- **Fallback RAG-only** : si le graphe ne trouve rien, recherche vectorielle sur tous les chunks de la mémoire
+- **Seuil de pertinence** (`RAG_SCORE_THRESHOLD=0.65`) : les chunks sous le seuil cosinus sont éliminés — pas de bruit envoyé au LLM
 - **Citation des documents sources** dans les réponses (chaque entité inclut son document d'origine)
 - Mode Focus : isolation du sous-graphe lié à une question
 
