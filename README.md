@@ -123,7 +123,7 @@ Question en langage naturel
 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
-│                         Clients MCP                                   │
+│                         Clients MCP                                  │
 │   (Claude Desktop, Cline, QuoteFlow, Vela, CLI, Interface Web)       │
 └──────────────────────────────┬───────────────────────────────────────┘
                                │ HTTP/SSE + Bearer Token
