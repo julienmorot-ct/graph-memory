@@ -3,15 +3,21 @@
 Commandes Click pour la CLI MCP Memory.
 
 Commandes disponibles :
-  - health        : Vérifier l'état du serveur
-  - memory list   : Lister les mémoires
-  - memory create : Créer une mémoire
-  - memory delete : Supprimer une mémoire
-  - memory graph  : Afficher le graphe
-  - document ingest/list/show/delete
-  - ontologies    : Lister les ontologies
-  - ask           : Poser une question
-  - shell         : Mode interactif
+  - health            : Vérifier l'état du serveur
+  - memory list       : Lister les mémoires
+  - memory create     : Créer une mémoire
+  - memory delete     : Supprimer une mémoire
+  - memory graph      : Afficher le graphe
+  - memory info       : Résumé d'une mémoire (stats)
+  - memory entities   : Entités par type
+  - memory entity     : Contexte d'une entité
+  - memory relations  : Relations par type
+  - document ingest/list/delete
+  - storage check     : Vérifier cohérence S3/graphe
+  - storage cleanup   : Nettoyer les orphelins S3
+  - ontologies        : Lister les ontologies
+  - ask               : Poser une question
+  - shell             : Mode interactif
 """
 
 import os
@@ -30,7 +36,9 @@ from .client import MCPClient
 from . import BASE_URL, TOKEN
 from .display import (
     show_memories_table, show_documents_table, show_graph_summary,
-    show_ingest_result, show_error, show_success, show_answer, console
+    show_ingest_result, show_error, show_success, show_warning,
+    show_answer, show_entity_context, show_storage_check,
+    show_cleanup_result, console
 )
 
 # =============================================================================
@@ -177,6 +185,259 @@ def memory_graph(ctx, memory_id, format):
                 console.print(Syntax(json.dumps(result, indent=2, ensure_ascii=False), "json"))
             else:
                 show_graph_summary(result, memory_id)
+        except Exception as e:
+            show_error(str(e))
+    asyncio.run(_run())
+
+
+@memory.command("info")
+@click.argument("memory_id")
+@click.pass_context
+def memory_info(ctx, memory_id):
+    """ℹ️  Résumé d'une mémoire (entités, relations, documents)."""
+    async def _run():
+        try:
+            client = MCPClient(ctx.obj["url"], ctx.obj["token"])
+            result = await client.get_graph(memory_id)
+            if result.get("status") == "ok":
+                from rich.panel import Panel
+                nodes = result.get("nodes", [])
+                edges = result.get("edges", [])
+                docs = result.get("documents", [])
+                entity_nodes = [n for n in nodes if n.get("node_type") == "entity"]
+                non_mention = [e for e in edges if e.get("type") != "MENTIONS"]
+                console.print(Panel.fit(
+                    f"[bold]Mémoire:[/bold]   [cyan]{memory_id}[/cyan]\n"
+                    f"[bold]Entités:[/bold]   [green]{len(entity_nodes)}[/green]\n"
+                    f"[bold]Relations:[/bold] [green]{len(non_mention)}[/green]\n"
+                    f"[bold]MENTIONS:[/bold]  [dim]{len(edges) - len(non_mention)}[/dim]\n"
+                    f"[bold]Documents:[/bold] [green]{len(docs)}[/green]",
+                    title=f"ℹ️  Info: {memory_id}",
+                    border_style="cyan",
+                ))
+            else:
+                show_error(result.get("message", "Erreur"))
+        except Exception as e:
+            show_error(str(e))
+    asyncio.run(_run())
+
+
+@memory.command("entities")
+@click.argument("memory_id")
+@click.option("--format", "-f", type=click.Choice(["table", "json"]), default="table")
+@click.pass_context
+def memory_entities(ctx, memory_id, format):
+    """📦 Lister les entités par type (avec documents sources)."""
+    async def _run():
+        try:
+            client = MCPClient(ctx.obj["url"], ctx.obj["token"])
+            result = await client.get_graph(memory_id)
+            if result.get("status") != "ok":
+                show_error(result.get("message", "Erreur"))
+                return
+
+            nodes = [n for n in result.get("nodes", []) if n.get("node_type") == "entity"]
+            if not nodes:
+                show_warning("Aucune entité dans cette mémoire.")
+                return
+
+            if format == "json":
+                console.print(Syntax(json.dumps(nodes, indent=2, ensure_ascii=False), "json"))
+                return
+
+            # Mapping entité → documents via MENTIONS
+            edges = result.get("edges", [])
+            docs_by_id = {}
+            for d in result.get("documents", []):
+                did = d.get("id", "")
+                fname = d.get("filename", "?")
+                docs_by_id[did] = fname
+                docs_by_id[f"doc:{did}"] = fname
+
+            entity_docs = {}
+            for e in edges:
+                if e.get("type") == "MENTIONS":
+                    from_id = e.get("from", "")
+                    to_label = e.get("to", "")
+                    fname = docs_by_id.get(from_id, "")
+                    if fname:
+                        entity_docs.setdefault(to_label, set()).add(fname)
+
+            from collections import defaultdict
+            from rich.table import Table
+            by_type = defaultdict(list)
+            for n in nodes:
+                by_type[n.get("type", "?")].append(n)
+
+            for etype in sorted(by_type, key=lambda t: -len(by_type[t])):
+                entities = by_type[etype]
+                table = Table(
+                    title=f"[magenta]{etype}[/magenta] ({len(entities)})",
+                    show_header=True, show_lines=False
+                )
+                table.add_column("Nom", style="white")
+                table.add_column("Description", style="dim", max_width=40)
+                table.add_column("Document(s)", style="cyan")
+
+                for ent in entities:
+                    label = ent.get("label", "?")
+                    doc_list = entity_docs.get(label, set())
+                    doc_str = ", ".join(sorted(doc_list)) if doc_list else "-"
+                    table.add_row(
+                        label[:40],
+                        (ent.get("description", "") or "")[:40],
+                        doc_str,
+                    )
+                console.print(table)
+        except Exception as e:
+            show_error(str(e))
+    asyncio.run(_run())
+
+
+@memory.command("entity")
+@click.argument("memory_id")
+@click.argument("entity_name")
+@click.option("--depth", default=1, help="Profondeur de traversée (défaut: 1)")
+@click.pass_context
+def memory_entity(ctx, memory_id, entity_name, depth):
+    """🔍 Contexte d'une entité (relations, documents, voisins)."""
+    async def _run():
+        try:
+            client = MCPClient(ctx.obj["url"], ctx.obj["token"])
+            result = await client.call_tool("memory_get_context", {
+                "memory_id": memory_id,
+                "entity_name": entity_name,
+                "depth": depth,
+            })
+            if result.get("status") == "ok":
+                show_entity_context(result)
+            else:
+                show_error(result.get("message", "Entité non trouvée"))
+        except Exception as e:
+            show_error(str(e))
+    asyncio.run(_run())
+
+
+@memory.command("relations")
+@click.argument("memory_id")
+@click.option("--type", "-t", "rel_type", default=None, help="Filtrer par type de relation")
+@click.option("--format", "-f", type=click.Choice(["table", "json"]), default="table")
+@click.pass_context
+def memory_relations(ctx, memory_id, rel_type, format):
+    """🔗 Relations par type (résumé ou détail avec --type)."""
+    async def _run():
+        try:
+            from collections import Counter
+            from rich.table import Table
+
+            client = MCPClient(ctx.obj["url"], ctx.obj["token"])
+            result = await client.get_graph(memory_id)
+            if result.get("status") != "ok":
+                show_error(result.get("message", "Erreur"))
+                return
+
+            edges = result.get("edges", [])
+            if not edges:
+                show_warning("Aucune relation dans cette mémoire.")
+                return
+
+            if format == "json":
+                data = edges if not rel_type else [
+                    e for e in edges if e.get("type", "").upper() == rel_type.upper()
+                ]
+                console.print(Syntax(json.dumps(data, indent=2, ensure_ascii=False), "json"))
+                return
+
+            if rel_type:
+                # Mode détaillé : toutes les relations d'un type
+                filtered = [e for e in edges if e.get("type", "").upper() == rel_type.upper()]
+                if not filtered:
+                    available = sorted(set(e.get("type", "?") for e in edges))
+                    show_error(f"Type '{rel_type}' non trouvé.")
+                    console.print(f"[dim]Types disponibles: {', '.join(available)}[/dim]")
+                    return
+
+                table = Table(
+                    title=f"🔗 {rel_type.upper()} ({len(filtered)} relations)",
+                    show_header=True
+                )
+                table.add_column("De", style="white")
+                table.add_column("→", style="dim", width=2)
+                table.add_column("Vers", style="cyan")
+                table.add_column("Description", style="dim", max_width=40)
+
+                for e in filtered:
+                    table.add_row(
+                        e.get("from", "?")[:35],
+                        "→",
+                        e.get("to", "?")[:35],
+                        (e.get("description", "") or "")[:40],
+                    )
+                console.print(table)
+            else:
+                # Mode résumé : compteurs par type
+                rel_types = Counter(e.get("type", "?") for e in edges)
+                table = Table(title=f"🔗 Relations ({len(edges)} total)", show_header=True)
+                table.add_column("Type", style="blue bold")
+                table.add_column("Nombre", style="cyan", justify="right")
+                table.add_column("Exemples", style="dim")
+
+                for rtype, count in rel_types.most_common():
+                    examples = [e for e in edges if e.get("type") == rtype][:3]
+                    ex_str = ", ".join(
+                        f"{e.get('from', '?')} → {e.get('to', '?')}" for e in examples
+                    )
+                    table.add_row(rtype, str(count), ex_str[:60])
+
+                console.print(table)
+        except Exception as e:
+            show_error(str(e))
+    asyncio.run(_run())
+
+
+# =============================================================================
+# Storage (check / cleanup)
+# =============================================================================
+
+@cli.group()
+def storage():
+    """💾 Vérification et nettoyage du stockage S3."""
+    pass
+
+
+@storage.command("check")
+@click.argument("memory_id", required=False, default=None)
+@click.pass_context
+def storage_check(ctx, memory_id):
+    """🔍 Vérifier la cohérence S3/graphe (docs accessibles, orphelins)."""
+    async def _run():
+        try:
+            client = MCPClient(ctx.obj["url"], ctx.obj["token"])
+            params = {}
+            if memory_id:
+                params["memory_id"] = memory_id
+            console.print("[dim]🔍 Vérification S3 en cours...[/dim]")
+            result = await client.call_tool("storage_check", params)
+            show_storage_check(result)
+        except Exception as e:
+            show_error(str(e))
+    asyncio.run(_run())
+
+
+@storage.command("cleanup")
+@click.option("--force", "-f", is_flag=True, help="Supprimer réellement (sinon dry run)")
+@click.pass_context
+def storage_cleanup(ctx, force):
+    """🧹 Nettoyer les fichiers orphelins sur S3 (dry run par défaut)."""
+    async def _run():
+        try:
+            if force and not Confirm.ask("[yellow]⚠️ Supprimer les fichiers orphelins S3 ?[/yellow]"):
+                console.print("[dim]Annulé.[/dim]")
+                return
+            client = MCPClient(ctx.obj["url"], ctx.obj["token"])
+            console.print("[dim]🧹 Analyse des orphelins S3...[/dim]")
+            result = await client.call_tool("storage_cleanup", {"dry_run": not force})
+            show_cleanup_result(result)
         except Exception as e:
             show_error(str(e))
     asyncio.run(_run())
