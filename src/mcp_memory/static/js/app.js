@@ -1,8 +1,8 @@
 /**
  * MCP Memory - Orchestration et initialisation
- * 
+ *
  * Point d'entrée : charge les mémoires, connecte les événements,
- * gère le chargement du graphe et la modale paramètres.
+ * gère le chargement du graphe, la modale paramètres, et le mode isolation.
  */
 
 /** Charge la liste des mémoires dans le select */
@@ -35,16 +35,25 @@ async function loadSelectedGraph() {
         const result = await apiLoadGraph(memoryId);
         if (result.status !== 'ok') throw new Error(result.message);
 
+        // Stocker les données brutes
         appState.currentData = result;
         appState.currentMemory = memoryId;
 
-        renderGraph(result.nodes, result.edges);
-        updateLegend(result.nodes);
-        updateEntityList(result.nodes);
-        updateDocumentList(result.documents || []);
+        // Initialiser l'état de filtrage (tout visible)
+        initFilterState(result);
+
+        // Construire les panneaux de filtrage dans la sidebar
+        buildAllFilters(result);
+
+        // Appliquer les filtres (= rendu initial complet)
+        applyFilters();
 
         // Activer le bouton ASK
         document.getElementById('askBtn').disabled = false;
+
+        // Quitter le mode isolation s'il était actif
+        exitIsolation();
+
     } catch (e) {
         console.error('Erreur:', e);
         alert('Erreur: ' + e.message);
@@ -61,18 +70,13 @@ function setupHeaderControls() {
     });
     document.getElementById('loadBtn').addEventListener('click', loadSelectedGraph);
 
-    // Toggles re-render
-    document.getElementById('showMentions').addEventListener('change', () => {
-        if (appState.currentData) renderGraph(appState.currentData.nodes, appState.currentData.edges);
-    });
-    document.getElementById('showLabels').addEventListener('change', () => {
-        if (appState.currentData) renderGraph(appState.currentData.nodes, appState.currentData.edges);
-    });
-
     // Zoom to fit
     document.getElementById('fitBtn').addEventListener('click', () => {
         if (appState.network) appState.network.fit({ animation: { duration: 500, easingFunction: 'easeInOutQuad' } });
     });
+
+    // Bouton "Graphe complet" (sortir du mode isolation)
+    document.getElementById('exitIsolationBtn').addEventListener('click', exitIsolation);
 }
 
 /** Setup modale paramètres */
@@ -113,7 +117,8 @@ function setupSettingsModal() {
         currentParams.nodeSize = parseInt(document.getElementById('paramNodeSize').value);
         currentParams.fontSize = parseInt(document.getElementById('paramFontSize').value);
         modal.classList.remove('visible');
-        if (appState.currentData) renderGraph(appState.currentData.nodes, appState.currentData.edges);
+        // Ré-appliquer les filtres avec les nouveaux paramètres de rendu
+        applyFilters();
     });
 }
 
@@ -123,6 +128,5 @@ document.addEventListener('DOMContentLoaded', () => {
     setupHeaderControls();
     setupSettingsModal();
     setupSearchFilter();
-    setupTypeFilter();
     setupAsk();
 });

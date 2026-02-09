@@ -354,6 +354,7 @@ class StaticFilesMiddleware:
         """
         Traite une question sur une mémoire et retourne la réponse.
         
+        Délègue à question_answer() de server.py (source unique de logique).
         Body JSON: {memory_id, question, limit?}
         Retourne: {status, answer, entities, source_documents}
         """
@@ -373,76 +374,14 @@ class StaticFilesMiddleware:
             
             print(f"💬 [ASK] {memory_id}: {question}", file=sys.stderr)
             
-            # 1. Rechercher les entités pertinentes
-            entities = await self.graph_service.search_entities(
-                memory_id, search_query=question, limit=limit
-            )
+            # Appel direct à la fonction MCP (source unique de logique)
+            from ..server import question_answer
+            result = await question_answer(memory_id, question, limit)
             
-            if not entities:
-                await self._send_json(send, {
-                    "status": "ok",
-                    "answer": "Je n'ai pas trouvé d'informations pertinentes dans cette mémoire.",
-                    "entities": [],
-                    "source_documents": []
-                })
-                return
+            # Retirer context_used de la réponse API (pas utile pour le front)
+            result.pop("context_used", None)
             
-            # 2. Récupérer le contexte de chaque entité
-            context_parts = []
-            entity_names = []
-            source_documents = {}
-            
-            for entity in entities:
-                entity_names.append(entity["name"])
-                ctx = await self.graph_service.get_entity_context(
-                    memory_id, entity["name"], depth=1
-                )
-                
-                # Collecter les documents sources
-                for doc in ctx.documents:
-                    if isinstance(doc, dict):
-                        doc_id = doc.get('id', '')
-                        if doc_id and doc_id not in source_documents:
-                            source_documents[doc_id] = {
-                                "id": doc_id,
-                                "filename": doc.get('filename', doc_id),
-                            }
-                
-                # Construire le contexte texte
-                ctx_text = f"- {entity['name']} ({entity.get('type', '?')})"
-                if entity.get('description'):
-                    ctx_text += f": {entity['description']}"
-                
-                for rel in ctx.relations:
-                    ctx_text += f"\n  → {rel.get('type', 'RELATED_TO')}: {rel.get('description', '')}"
-                
-                related = [r['name'] for r in ctx.related_entities]
-                if related:
-                    ctx_text += f"\n  Lié à: {', '.join(related)}"
-                
-                context_parts.append(ctx_text)
-            
-            # 3. Générer la réponse LLM
-            context = "\n".join(context_parts)
-            prompt = f"""Tu es un assistant qui répond à des questions basées sur un graphe de connaissances.
-
-Contexte extrait du graphe :
-{context}
-
-Question de l'utilisateur : {question}
-
-Réponds de manière concise et précise en te basant UNIQUEMENT sur le contexte fourni.
-Si le contexte ne permet pas de répondre complètement, dis-le clairement.
-Utilise le format Markdown pour structurer ta réponse.
-"""
-            answer = await self.extractor_service.generate_answer(prompt)
-            
-            await self._send_json(send, {
-                "status": "ok",
-                "answer": answer,
-                "entities": entity_names,
-                "source_documents": list(source_documents.values())
-            })
+            await self._send_json(send, result)
             
         except json.JSONDecodeError:
             await self._send_json(send, {

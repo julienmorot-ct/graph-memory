@@ -66,3 +66,5 @@ neo4j_logs/
 tmp/
 temp/
 *.tmp
+
+/MATIERE/

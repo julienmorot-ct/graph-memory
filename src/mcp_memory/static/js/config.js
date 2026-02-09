@@ -1,7 +1,10 @@
 /**
  * MCP Memory - Configuration et constantes
- * Couleurs par type d'entité et de relation, paramètres par défaut.
+ * Couleurs par type d'entité et de relation, paramètres par défaut,
+ * état de filtrage global.
  */
+
+// ═══════════════ COULEURS ═══════════════
 
 // Couleurs des nœuds par type d'entité
 const TYPE_COLORS = {
@@ -28,13 +31,124 @@ const EDGE_COLORS = {
     CONTAINS: '#34495e', HAS_VALUE: '#f39c12'
 };
 
-// Paramètres d'affichage du graphe
+// ═══════════════ PARAMÈTRES D'AFFICHAGE ═══════════════
+
 const DEFAULT_PARAMS = { springLength: 400, gravity: 15000, nodeSize: 20, fontSize: 11 };
 let currentParams = { ...DEFAULT_PARAMS };
 
-// État global de l'application
+// ═══════════════ ÉTAT GLOBAL ═══════════════
+
 const appState = {
-    network: null,      // Instance vis-network
-    currentData: null,  // Données du graphe chargé
-    currentMemory: null // ID de la mémoire sélectionnée
+    network: null,       // Instance vis-network
+    currentData: null,   // Données brutes du graphe chargé (non filtrées)
+    currentMemory: null  // ID de la mémoire sélectionnée
 };
+
+// ═══════════════ ÉTAT DE FILTRAGE ═══════════════
+
+const filterState = {
+    // Sets de types/IDs visibles (tout visible par défaut après chargement)
+    visibleEntityTypes: new Set(),   // ex: {"Organization", "Clause", "Person"}
+    visibleEdgeTypes: new Set(),     // ex: {"DEFINES", "OBLIGATES", "MENTIONS"}
+    visibleDocuments: new Set(),     // ex: {"doc_id_1", "doc_id_2"}
+
+    // Mode isolation (pour ASK "Isoler le sujet")
+    // null = pas d'isolation (graphe complet filtré), Set = seuls ces nœuds sont montrés
+    isolatedNodes: null,
+
+    // Flag : les filtres ont-ils été initialisés après un chargement de graphe ?
+    initialized: false
+};
+
+/**
+ * Initialise filterState à partir des données chargées.
+ * Met tous les types/documents à "visible".
+ */
+function initFilterState(data) {
+    // Collecter tous les types d'entités
+    const entityTypes = new Set(data.nodes.map(n => n.type));
+    filterState.visibleEntityTypes = entityTypes;
+
+    // Collecter tous les types de relations
+    const edgeTypes = new Set(data.edges.map(e => e.type));
+    filterState.visibleEdgeTypes = edgeTypes;
+
+    // Collecter tous les IDs de documents
+    const docIds = new Set((data.documents || []).map(d => d.id));
+    filterState.visibleDocuments = docIds;
+
+    // Pas d'isolation
+    filterState.isolatedNodes = null;
+
+    filterState.initialized = true;
+}
+
+/**
+ * Applique les filtres et re-rend le graphe.
+ * C'est LA fonction centrale de filtrage — appelée à chaque changement de filtre.
+ */
+function applyFilters() {
+    if (!appState.currentData || !filterState.initialized) return;
+
+    const data = appState.currentData;
+
+    // Étape 1 : Filtrer les nœuds par type d'entité visible
+    //           En mode isolation, les nœuds dans isolatedNodes sont toujours éligibles
+    const isIsolated = filterState.isolatedNodes !== null;
+
+    let filteredNodes = data.nodes.filter(n => {
+        // En mode isolation, les nœuds dans le set sont toujours visibles
+        if (isIsolated && filterState.isolatedNodes.has(n.id)) return true;
+
+        // Les documents sont visibles si leur ID est dans visibleDocuments
+        if (n.node_type === 'document') {
+            return filterState.visibleDocuments.has(n.id);
+        }
+        // Les entités sont visibles si leur type est dans visibleEntityTypes
+        return filterState.visibleEntityTypes.has(n.type);
+    });
+
+    // Étape 2 : Si des documents sont masqués, masquer aussi les entités
+    //           qui n'apparaissent QUE dans ces documents masqués
+    const hiddenDocIds = new Set(
+        (data.documents || [])
+            .filter(d => !filterState.visibleDocuments.has(d.id))
+            .map(d => d.id)
+    );
+    if (hiddenDocIds.size > 0 && data.documents && data.documents.length > 0) {
+        filteredNodes = filteredNodes.filter(n => {
+            if (n.node_type === 'document') return true; // déjà filtré ci-dessus
+            // Si l'entité a des source_docs, vérifier qu'au moins un est visible
+            if (n.source_docs && n.source_docs.length > 0) {
+                return n.source_docs.some(docId => filterState.visibleDocuments.has(docId));
+            }
+            return true; // pas de source_docs = toujours visible
+        });
+    }
+
+    // Étape 3 : Mode isolation (ASK "Isoler le sujet")
+    if (filterState.isolatedNodes !== null) {
+        filteredNodes = filteredNodes.filter(n => filterState.isolatedNodes.has(n.id));
+    }
+
+    // Étape 4 : Filtrer les arêtes
+    const visibleNodeIds = new Set(filteredNodes.map(n => n.id));
+    let filteredEdges = data.edges.filter(e => {
+        // L'arête doit connecter deux nœuds visibles
+        if (!visibleNodeIds.has(e.from) || !visibleNodeIds.has(e.to)) return false;
+        // Le type de relation doit être visible
+        return filterState.visibleEdgeTypes.has(e.type);
+    });
+
+    // Rendre le graphe filtré
+    renderGraph(filteredNodes, filteredEdges);
+
+    // Mettre à jour la liste d'entités (exclure les documents)
+    updateEntityList(filteredNodes.filter(n => n.node_type !== 'document'));
+
+    // Mettre à jour les stats
+    updateStats(
+        filteredNodes.filter(n => n.node_type !== 'document').length,
+        filteredEdges.filter(e => e.type !== 'MENTIONS').length
+    );
+}

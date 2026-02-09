@@ -1,9 +1,13 @@
 /**
  * MCP Memory - Panneau ASK (question/réponse) avec highlight graphe
- * 
- * Permet de poser une question, affiche la réponse et met en évidence
- * les entités trouvées dans le graphe.
+ * et mode "Focus Question" (isolation du sous-graphe pertinent).
+ *
+ * Après chaque réponse contenant des entités, un bouton "Isoler le sujet"
+ * permet de filtrer le graphe pour ne montrer que le sous-graphe lié à la question.
  */
+
+// Stocke les entités de la dernière réponse (pour le bouton Isoler)
+let lastAnswerEntities = [];
 
 /** Ouvre le panneau ASK */
 function showAskPanel() {
@@ -29,14 +33,16 @@ async function submitQuestion() {
     // Afficher le loading
     body.innerHTML = '<div class="ask-loading"><div class="spinner" style="width:30px;height:30px;border-width:3px;margin:0 auto 0.5rem"></div>Réflexion en cours…</div>';
     btn.disabled = true;
+    lastAnswerEntities = [];
 
     try {
         const result = await apiAsk(appState.currentMemory, question);
-        
+
         if (result.status === 'ok') {
             displayAnswer(result);
             // Mettre en évidence les entités dans le graphe
             if (result.entities && result.entities.length > 0) {
+                lastAnswerEntities = result.entities;
                 highlightEntities(result.entities);
             }
         } else {
@@ -52,10 +58,10 @@ async function submitQuestion() {
 /** Affiche la réponse dans le panneau */
 function displayAnswer(result) {
     const body = document.getElementById('askBody');
-    
+
     // Convertir le markdown en HTML avec marked.js
     const answerHtml = marked.parse(result.answer || '', { breaks: true, gfm: true });
-    
+
     let html = `<div class="ask-answer">${answerHtml}</div>`;
 
     // Entités trouvées (cliquables → focus dans le graphe)
@@ -65,6 +71,11 @@ function displayAnswer(result) {
             html += `<span class="ask-entity-tag" onclick="focusNode('${escapeHtml(name)}')" title="Voir dans le graphe">${escapeHtml(name)}</span>`;
         });
         html += '</div>';
+
+        // Bouton "Isoler le sujet" → mode Focus
+        html += `<button class="ask-isolate-btn" onclick="isolateFromAsk()" title="Afficher uniquement le sous-graphe lié à cette question">
+            🔬 Isoler le sujet dans le graphe
+        </button>`;
     }
 
     // Documents sources (affichage en liste)
@@ -81,6 +92,13 @@ function displayAnswer(result) {
     body.innerHTML = html;
 }
 
+/** Déclenche l'isolation du sous-graphe depuis le bouton dans le panneau ASK */
+function isolateFromAsk() {
+    if (lastAnswerEntities.length > 0) {
+        isolateSubgraph(lastAnswerEntities);
+    }
+}
+
 /** Échappe le HTML pour éviter les injections */
 function escapeHtml(str) {
     return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
@@ -90,13 +108,13 @@ function escapeHtml(str) {
 function setupAsk() {
     // Bouton Ask dans le header
     document.getElementById('askBtn').addEventListener('click', showAskPanel);
-    
+
     // Bouton submit
     document.getElementById('askSubmitBtn').addEventListener('click', submitQuestion);
-    
+
     // Fermer
     document.getElementById('askCloseBtn').addEventListener('click', hideAskPanel);
-    
+
     // Enter pour soumettre
     document.getElementById('askInput').addEventListener('keydown', function (e) {
         if (e.key === 'Enter' && !e.shiftKey) {

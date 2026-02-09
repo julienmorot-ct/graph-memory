@@ -1,95 +1,357 @@
 /**
- * MCP Memory - Sidebar : stats, légende, liste d'entités, filtres, documents
+ * MCP Memory - Sidebar : stats, filtres interactifs, liste d'entités
+ *
+ * Trois panneaux de filtrage pliables :
+ *   1. Types d'entités (checkboxes avec pastilles couleur)
+ *   2. Types de relations (checkboxes avec barres couleur)
+ *   3. Documents (checkboxes par document)
+ *
+ * Chaque changement de filtre appelle applyFilters() (défini dans config.js).
  */
+
+// ═══════════════ STATS ═══════════════
 
 function updateStats(nodeCount, edgeCount) {
     document.getElementById('nodeCount').textContent = nodeCount;
     document.getElementById('edgeCount').textContent = edgeCount;
 }
 
-function updateLegend(nodes) {
-    const types = [...new Set(nodes.map(n => n.type))];
-    document.getElementById('legend').innerHTML = types.map(t => `
-        <div class="legend-item">
-            <div class="legend-color" style="background:${TYPE_COLORS[t] || TYPE_COLORS.Unknown}"></div>
-            <span>${t}</span>
-        </div>`).join('');
+// ═══════════════ SECTIONS PLIABLES ═══════════════
 
-    // Peupler le select de filtrage par type
-    const select = document.getElementById('typeFilter');
-    select.innerHTML = '<option value="">Tous les types</option>' +
-        types.sort().map(t => `<option value="${t}">${t} (${nodes.filter(n => n.type === t).length})</option>`).join('');
+/** Toggle une section de filtre (plier/déplier) */
+function toggleFilterSection(sectionId) {
+    const body = document.getElementById('body-' + sectionId);
+    const chevron = document.getElementById('chevron-' + sectionId);
+    const actions = document.getElementById('actions-' + sectionId);
+
+    if (body.classList.contains('collapsed')) {
+        body.classList.remove('collapsed');
+        chevron.classList.remove('collapsed');
+        if (actions) actions.classList.remove('hidden');
+    } else {
+        body.classList.add('collapsed');
+        chevron.classList.add('collapsed');
+        if (actions) actions.classList.add('hidden');
+    }
 }
+
+// ═══════════════ FILTRE : TYPES D'ENTITÉS ═══════════════
+
+/** Génère les checkboxes pour les types d'entités */
+function buildEntityTypeFilters(nodes) {
+    const body = document.getElementById('body-entityTypes');
+
+    // Compter les nœuds par type (exclure les documents)
+    const typeCounts = {};
+    nodes.forEach(n => {
+        if (n.node_type === 'document') return;
+        typeCounts[n.type] = (typeCounts[n.type] || 0) + 1;
+    });
+
+    const types = Object.keys(typeCounts).sort();
+    if (types.length === 0) {
+        body.innerHTML = '<div class="filter-empty">Aucune entité</div>';
+        return;
+    }
+
+    body.innerHTML = types.map(type => {
+        const color = TYPE_COLORS[type] || TYPE_COLORS.Unknown;
+        const checked = filterState.visibleEntityTypes.has(type) ? 'checked' : '';
+        const dimmed = checked ? '' : 'dimmed';
+        return `
+            <label class="filter-item" title="${type} (${typeCounts[type]})">
+                <input type="checkbox" ${checked}
+                       onchange="toggleEntityType('${type}', this.checked)">
+                <div class="filter-color" style="background:${color}"></div>
+                <span class="filter-label ${dimmed}" id="label-etype-${type}">${type}</span>
+                <span class="filter-count">${typeCounts[type]}</span>
+            </label>`;
+    }).join('');
+}
+
+/** Toggle un type d'entité */
+function toggleEntityType(type, visible) {
+    if (visible) {
+        filterState.visibleEntityTypes.add(type);
+    } else {
+        filterState.visibleEntityTypes.delete(type);
+    }
+    // Mettre à jour le style du label
+    const label = document.getElementById('label-etype-' + type);
+    if (label) label.classList.toggle('dimmed', !visible);
+
+    applyFilters();
+}
+
+/** Tous les types d'entités visibles */
+function selectAllEntityTypes() {
+    if (!appState.currentData) return;
+    const types = new Set(appState.currentData.nodes.filter(n => n.node_type !== 'document').map(n => n.type));
+    filterState.visibleEntityTypes = types;
+    // Mettre à jour les checkboxes
+    document.querySelectorAll('#body-entityTypes input[type="checkbox"]').forEach(cb => {
+        cb.checked = true;
+    });
+    document.querySelectorAll('#body-entityTypes .filter-label').forEach(l => {
+        l.classList.remove('dimmed');
+    });
+    applyFilters();
+}
+
+/** Aucun type d'entité visible */
+function selectNoEntityTypes() {
+    filterState.visibleEntityTypes.clear();
+    document.querySelectorAll('#body-entityTypes input[type="checkbox"]').forEach(cb => {
+        cb.checked = false;
+    });
+    document.querySelectorAll('#body-entityTypes .filter-label').forEach(l => {
+        l.classList.add('dimmed');
+    });
+    applyFilters();
+}
+
+/** Inverser la sélection des types d'entités */
+function invertEntityTypes() {
+    if (!appState.currentData) return;
+    const allTypes = new Set(appState.currentData.nodes.filter(n => n.node_type !== 'document').map(n => n.type));
+    const newVisible = new Set();
+    allTypes.forEach(t => {
+        if (!filterState.visibleEntityTypes.has(t)) newVisible.add(t);
+    });
+    filterState.visibleEntityTypes = newVisible;
+    // Mettre à jour les checkboxes
+    document.querySelectorAll('#body-entityTypes input[type="checkbox"]').forEach(cb => {
+        const type = cb.closest('.filter-item').querySelector('.filter-label').textContent.trim();
+        const visible = filterState.visibleEntityTypes.has(type);
+        cb.checked = visible;
+        cb.closest('.filter-item').querySelector('.filter-label').classList.toggle('dimmed', !visible);
+    });
+    applyFilters();
+}
+
+// ═══════════════ FILTRE : TYPES DE RELATIONS ═══════════════
+
+/** Génère les checkboxes pour les types de relations */
+function buildEdgeTypeFilters(edges) {
+    const body = document.getElementById('body-edgeTypes');
+
+    // Compter les arêtes par type
+    const typeCounts = {};
+    edges.forEach(e => {
+        typeCounts[e.type] = (typeCounts[e.type] || 0) + 1;
+    });
+
+    const types = Object.keys(typeCounts).sort();
+    if (types.length === 0) {
+        body.innerHTML = '<div class="filter-empty">Aucune relation</div>';
+        return;
+    }
+
+    body.innerHTML = types.map(type => {
+        const color = EDGE_COLORS[type] || '#556';
+        const checked = filterState.visibleEdgeTypes.has(type) ? 'checked' : '';
+        const dimmed = checked ? '' : 'dimmed';
+        const displayName = type.replace(/_/g, ' ');
+        return `
+            <label class="filter-item" title="${displayName} (${typeCounts[type]})">
+                <input type="checkbox" ${checked}
+                       onchange="toggleEdgeType('${type}', this.checked)">
+                <div class="filter-edge-color" style="background:${color}"></div>
+                <span class="filter-label ${dimmed}" id="label-etype-edge-${type}">${displayName}</span>
+                <span class="filter-count">${typeCounts[type]}</span>
+            </label>`;
+    }).join('');
+}
+
+/** Toggle un type de relation */
+function toggleEdgeType(type, visible) {
+    if (visible) {
+        filterState.visibleEdgeTypes.add(type);
+    } else {
+        filterState.visibleEdgeTypes.delete(type);
+    }
+    const label = document.getElementById('label-etype-edge-' + type);
+    if (label) label.classList.toggle('dimmed', !visible);
+    applyFilters();
+}
+
+/** Tous les types de relations visibles */
+function selectAllEdgeTypes() {
+    if (!appState.currentData) return;
+    const types = new Set(appState.currentData.edges.map(e => e.type));
+    filterState.visibleEdgeTypes = types;
+    document.querySelectorAll('#body-edgeTypes input[type="checkbox"]').forEach(cb => {
+        cb.checked = true;
+    });
+    document.querySelectorAll('#body-edgeTypes .filter-label').forEach(l => {
+        l.classList.remove('dimmed');
+    });
+    applyFilters();
+}
+
+/** Aucun type de relation visible */
+function selectNoEdgeTypes() {
+    filterState.visibleEdgeTypes.clear();
+    document.querySelectorAll('#body-edgeTypes input[type="checkbox"]').forEach(cb => {
+        cb.checked = false;
+    });
+    document.querySelectorAll('#body-edgeTypes .filter-label').forEach(l => {
+        l.classList.add('dimmed');
+    });
+    applyFilters();
+}
+
+/** Inverser la sélection des types de relations */
+function invertEdgeTypes() {
+    if (!appState.currentData) return;
+    const allTypes = new Set(appState.currentData.edges.map(e => e.type));
+    const newVisible = new Set();
+    allTypes.forEach(t => {
+        if (!filterState.visibleEdgeTypes.has(t)) newVisible.add(t);
+    });
+    filterState.visibleEdgeTypes = newVisible;
+    document.querySelectorAll('#body-edgeTypes input[type="checkbox"]').forEach(cb => {
+        const label = cb.closest('.filter-item').querySelector('.filter-label');
+        // Retrouver le type original (avec underscores) depuis l'ID du label
+        const labelId = label.id || '';
+        const type = labelId.replace('label-etype-edge-', '');
+        const visible = filterState.visibleEdgeTypes.has(type);
+        cb.checked = visible;
+        label.classList.toggle('dimmed', !visible);
+    });
+    applyFilters();
+}
+
+// ═══════════════ FILTRE : DOCUMENTS ═══════════════
+
+/** Génère les checkboxes pour les documents */
+function buildDocumentFilters(documents) {
+    const body = document.getElementById('body-documents');
+
+    if (!documents || documents.length === 0) {
+        body.innerHTML = '<div class="filter-empty">Aucun document</div>';
+        return;
+    }
+
+    body.innerHTML = documents.map(doc => {
+        const checked = filterState.visibleDocuments.has(doc.id) ? 'checked' : '';
+        const dimmed = checked ? '' : 'dimmed';
+        const name = doc.filename || doc.id;
+        const shortName = name.length > 30 ? name.substring(0, 28) + '…' : name;
+        return `
+            <label class="filter-item" title="${name}">
+                <input type="checkbox" ${checked}
+                       onchange="toggleDocument('${doc.id}', this.checked)">
+                <div class="filter-color" style="background:#e74c3c"></div>
+                <span class="filter-label ${dimmed}" id="label-doc-${doc.id}">${shortName}</span>
+            </label>`;
+    }).join('');
+}
+
+/** Toggle un document */
+function toggleDocument(docId, visible) {
+    if (visible) {
+        filterState.visibleDocuments.add(docId);
+    } else {
+        filterState.visibleDocuments.delete(docId);
+    }
+    const label = document.getElementById('label-doc-' + docId);
+    if (label) label.classList.toggle('dimmed', !visible);
+    applyFilters();
+}
+
+/** Tous les documents visibles */
+function selectAllDocuments() {
+    if (!appState.currentData) return;
+    const docIds = new Set((appState.currentData.documents || []).map(d => d.id));
+    filterState.visibleDocuments = docIds;
+    document.querySelectorAll('#body-documents input[type="checkbox"]').forEach(cb => {
+        cb.checked = true;
+    });
+    document.querySelectorAll('#body-documents .filter-label').forEach(l => {
+        l.classList.remove('dimmed');
+    });
+    applyFilters();
+}
+
+/** Aucun document visible */
+function selectNoDocuments() {
+    filterState.visibleDocuments.clear();
+    document.querySelectorAll('#body-documents input[type="checkbox"]').forEach(cb => {
+        cb.checked = false;
+    });
+    document.querySelectorAll('#body-documents .filter-label').forEach(l => {
+        l.classList.add('dimmed');
+    });
+    applyFilters();
+}
+
+// ═══════════════ LISTE D'ENTITÉS ═══════════════
 
 function updateEntityList(nodes) {
     const list = document.getElementById('entityList');
+    const countSpan = document.getElementById('entityListCount');
     const sorted = [...nodes].sort((a, b) => (b.mentions || 0) - (a.mentions || 0));
-    list.innerHTML = sorted.slice(0, 50).map(n => `
+
+    if (countSpan) countSpan.textContent = `(${sorted.length})`;
+
+    list.innerHTML = sorted.slice(0, 80).map(n => `
         <div class="entity-item" onclick="focusNode('${n.id}')"
              style="border-left:3px solid ${TYPE_COLORS[n.type] || TYPE_COLORS.Unknown}">
-            ${n.label.substring(0, 30)}${n.label.length > 30 ? '…' : ''}
+            ${n.label.substring(0, 35)}${n.label.length > 35 ? '…' : ''}
             <div class="type">${n.type}</div>
         </div>`).join('');
-}
 
-function updateDocumentList(documents) {
-    if (!documents.length) return;
-    const sidebar = document.querySelector('.sidebar');
-    let section = document.getElementById('docSection');
-    if (!section) {
-        section = document.createElement('div');
-        section.id = 'docSection';
-        sidebar.appendChild(section);
+    if (sorted.length > 80) {
+        list.innerHTML += `<div style="font-size:0.7rem;color:#555;padding:0.3rem;text-align:center">… +${sorted.length - 80} entités</div>`;
     }
-    section.innerHTML = '<h3>📄 Documents</h3><div class="entity-list">' +
-        documents.map(d => `
-            <div class="entity-item" style="border-left:3px solid #e74c3c">
-                <strong>${d.filename}</strong>
-                <div class="type" style="word-break:break-all;font-size:0.65rem">${d.uri || ''}</div>
-            </div>`).join('') + '</div>';
 }
 
-/** Filtre local d'entités dans la sidebar */
+// ═══════════════ RECHERCHE LOCALE ═══════════════
+
+/** Filtre local d'entités dans la sidebar + sélection dans le graphe */
 function setupSearchFilter() {
     document.getElementById('searchInput').addEventListener('input', function () {
         const q = this.value.toLowerCase().trim();
         if (!appState.currentData || !appState.network) return;
+
         if (!q) {
             appState.network.unselectAll();
-            updateEntityList(appState.currentData.nodes);
+            // Restaurer la liste selon les filtres actifs
+            const visibleNodes = appState.currentData.nodes.filter(n =>
+                n.node_type !== 'document' && filterState.visibleEntityTypes.has(n.type)
+            );
+            updateEntityList(visibleNodes);
             return;
         }
+
         const matches = appState.currentData.nodes.filter(n =>
-            n.label.toLowerCase().includes(q) ||
-            (n.description || '').toLowerCase().includes(q) ||
-            (n.type || '').toLowerCase().includes(q)
+            n.node_type !== 'document' && (
+                n.label.toLowerCase().includes(q) ||
+                (n.description || '').toLowerCase().includes(q) ||
+                (n.type || '').toLowerCase().includes(q)
+            )
         );
         updateEntityList(matches);
+
         if (matches.length > 0 && matches.length <= 20) {
             const ids = matches.map(n => n.id);
             appState.network.selectNodes(ids);
-            if (matches.length === 1) appState.network.focus(ids[0], { scale: 1.5, animation: true });
+            if (matches.length === 1) {
+                appState.network.focus(ids[0], { scale: 1.5, animation: true });
+            }
         }
     });
 }
 
-/** Filtre par type dans la sidebar */
-function setupTypeFilter() {
-    document.getElementById('typeFilter').addEventListener('change', function () {
-        const type = this.value;
-        if (!appState.currentData) return;
-        if (!type) {
-            renderGraph(appState.currentData.nodes, appState.currentData.edges);
-            updateEntityList(appState.currentData.nodes);
-            return;
-        }
-        const filteredNodes = appState.currentData.nodes.filter(n => n.type === type);
-        const filteredIds = new Set(filteredNodes.map(n => n.id));
-        const filteredEdges = appState.currentData.edges.filter(e => filteredIds.has(e.from) || filteredIds.has(e.to));
-        const connectedIds = new Set(filteredIds);
-        filteredEdges.forEach(e => { connectedIds.add(e.from); connectedIds.add(e.to); });
-        const allVisible = appState.currentData.nodes.filter(n => connectedIds.has(n.id));
-        renderGraph(allVisible, filteredEdges);
-        updateEntityList(filteredNodes);
-    });
+// ═══════════════ CONSTRUCTION COMPLÈTE DES FILTRES ═══════════════
+
+/**
+ * Construit tous les panneaux de filtrage à partir des données chargées.
+ * Appelé après le chargement d'un graphe.
+ */
+function buildAllFilters(data) {
+    buildEntityTypeFilters(data.nodes);
+    buildEdgeTypeFilters(data.edges);
+    buildDocumentFilters(data.documents || []);
 }
