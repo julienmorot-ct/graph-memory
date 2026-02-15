@@ -30,7 +30,13 @@ class GraphService:
     
     Utilise des labels préfixés par memory_id pour l'isolation multi-tenant.
     Ex: quoteflow_legal_Document, quoteflow_legal_Entity
+    
+    Recherche: utilise un index fulltext Lucene avec analyzer 'standard-folding'
+    pour la recherche accent-insensitive (é→e, ç→c, etc.).
     """
+    
+    # Nom de l'index fulltext dans Neo4j
+    FULLTEXT_INDEX_NAME = "entity_fulltext"
     
     def __init__(self):
         """Initialise la connexion Neo4j."""
@@ -44,6 +50,7 @@ class GraphService:
             connection_acquisition_timeout=60
         )
         self._database = settings.neo4j_database
+        self._fulltext_index_ready = False  # Lazy init de l'index fulltext
     
     async def close(self):
         """Ferme la connexion Neo4j."""
@@ -626,6 +633,153 @@ class GraphService:
     # Recherche et Contexte
     # =========================================================================
     
+    async def ensure_fulltext_index(self):
+        """
+        Crée l'index fulltext pour la recherche d'entités (accent-insensitive).
+        
+        Utilise l'analyzer 'standard-folding' qui fait:
+        - Tokenisation standard (découpe en mots)
+        - Lowercase (minuscules)
+        - ASCII folding (suppression des accents: é→e, ç→c, ü→u, etc.)
+        
+        Idempotent: ne fait rien si l'index existe déjà.
+        L'index couvre name, description et type de toutes les :Entity.
+        """
+        try:
+            async with self.session() as session:
+                await session.run(
+                    """
+                    CREATE FULLTEXT INDEX entity_fulltext IF NOT EXISTS
+                    FOR (n:Entity) ON EACH [n.name, n.description, n.type]
+                    OPTIONS {indexConfig: {`fulltext.analyzer`: 'standard-folding'}}
+                    """
+                )
+                self._fulltext_index_ready = True
+                print("🔍 [Graph] Index fulltext 'entity_fulltext' créé/vérifié (standard-folding)", file=sys.stderr)
+        except Exception as e:
+            print(f"⚠️ [Graph] Impossible de créer l'index fulltext: {e}", file=sys.stderr)
+            print(f"   La recherche utilisera le mode CONTAINS (dégradé)", file=sys.stderr)
+    
+    @staticmethod
+    def _escape_lucene(text: str) -> str:
+        """
+        Échappe les caractères spéciaux de la syntaxe Lucene.
+        
+        Lucene utilise ces caractères comme opérateurs:
+        + - && || ! ( ) { } [ ] ^ " ~ * ? : \\ /
+        On les préfixe avec \\ pour les traiter comme du texte littéral.
+        """
+        special_chars = set('+-&|!(){}[]^"~*?:\\/') 
+        result = []
+        for char in text:
+            if char in special_chars:
+                result.append('\\')
+            result.append(char)
+        return ''.join(result)
+    
+    async def _search_fulltext(
+        self,
+        memory_id: str,
+        tokens: List[str],
+        limit: int
+    ) -> List[Dict[str, Any]]:
+        """
+        Recherche via l'index fulltext Neo4j (accent-insensitive, scoring Lucene).
+        
+        L'analyzer 'standard-folding' normalise automatiquement les accents
+        DANS L'INDEX et DANS LA REQUÊTE. Donc:
+        - "réversibilité" matche "Réversibilité", "REVERSIBILITE", "reversibilite"
+        - "resiliation" matche "Résiliation", "RÉSILIATION", etc.
+        
+        Retourne les entités triées par score de pertinence Lucene.
+        """
+        try:
+            # Construire la requête Lucene: échapper les tokens et joindre avec OR
+            escaped_tokens = [self._escape_lucene(t) for t in tokens]
+            lucene_query = " OR ".join(escaped_tokens)
+            
+            async with self.session() as session:
+                result = await session.run(
+                    """
+                    CALL db.index.fulltext.queryNodes('entity_fulltext', $search_text)
+                    YIELD node, score
+                    WHERE node.memory_id = $memory_id
+                    RETURN node.name as name, node.type as type,
+                           node.description as description,
+                           node.mention_count as mentions, score
+                    ORDER BY score DESC
+                    LIMIT $limit
+                    """,
+                    search_text=lucene_query,
+                    memory_id=memory_id,
+                    limit=limit
+                )
+                
+                entities = []
+                async for record in result:
+                    entities.append({
+                        "name": record["name"],
+                        "type": record["type"],
+                        "description": record["description"],
+                        "mentions": record["mentions"],
+                        "score": round(record["score"], 4)
+                    })
+                return entities
+        except Exception as e:
+            print(f"⚠️ [Search] Erreur fulltext: {e}", file=sys.stderr)
+            return []
+    
+    async def _search_contains(
+        self,
+        memory_id: str,
+        raw_tokens: List[str],
+        normalized_tokens: List[str],
+        limit: int
+    ) -> List[Dict[str, Any]]:
+        """
+        Recherche via CONTAINS (fallback si fulltext indisponible).
+        
+        Envoie les deux formes de tokens (avec et sans accents) pour maximiser
+        les chances de match avec toLower() de Neo4j (qui conserve les accents).
+        
+        Stratégie: AND d'abord (tous les concepts), puis OR (au moins un concept).
+        """
+        # Combiner raw (avec accents) + normalized (sans accents) pour couvrir les 2 cas
+        all_tokens = list(set(raw_tokens + normalized_tokens))
+        
+        async with self.session() as session:
+            # Recherche avec ANY (au moins un token matche)
+            # On utilise ANY plutôt que ALL car les tokens contiennent les 2 formes
+            # de chaque mot (avec/sans accents), ALL serait trop restrictif
+            result = await session.run(
+                """
+                MATCH (e:Entity {memory_id: $memory_id})
+                WHERE ANY(token IN $tokens WHERE 
+                    toLower(e.name) CONTAINS token 
+                    OR toLower(e.description) CONTAINS token
+                    OR toLower(e.type) CONTAINS token
+                )
+                RETURN e.name as name, e.type as type, e.description as description,
+                       e.mention_count as mentions
+                ORDER BY e.mention_count DESC
+                LIMIT $limit
+                """,
+                memory_id=memory_id,
+                tokens=all_tokens,
+                limit=limit
+            )
+            
+            entities = []
+            async for record in result:
+                entities.append({
+                    "name": record["name"],
+                    "type": record["type"],
+                    "description": record["description"],
+                    "mentions": record["mentions"]
+                })
+            
+            return entities
+    
     async def search_entities(
         self,
         memory_id: str,
@@ -633,12 +787,16 @@ class GraphService:
         limit: int = 10
     ) -> List[Dict[str, Any]]:
         """
-        Recherche des entités par nom, description et TYPE (fuzzy matching).
+        Recherche des entités par nom, description et TYPE.
         
-        Tokenise la requête pour des résultats plus pertinents.
-        Recherche aussi par type d'entité pour les requêtes comme "certifications".
-        Ex: "Cloud Temple" trouvera "Cloud Temple SAS", "Contrat Cloud Temple", etc.
-        Ex: "certification" trouvera toutes les entités de type Certification
+        Stratégie en 2 niveaux:
+        1. Index fulltext Lucene (accent-insensitive, scoring par pertinence)
+        2. Fallback CONTAINS (tokens raw + normalisés, si fulltext indisponible)
+        
+        Tokenise la requête, retire les stop words français, et recherche.
+        Ex: "réversibilité" → trouve "Réversibilité", "REVERSIBILITE", etc.
+        Ex: "Cloud Temple" → trouve "Cloud Temple SAS", "Contrat Cloud Temple", etc.
+        Ex: "certification" → trouve toutes les entités de type Certification
         """
         import re
         import unicodedata
@@ -656,81 +814,46 @@ class GraphService:
         
         def _normalize(text: str) -> str:
             """Retire accents et ponctuation pour normaliser."""
-            # Retirer la ponctuation
             text = re.sub(r'[^\w\s]', '', text)
-            # Retirer les accents
             nfkd = unicodedata.normalize('NFKD', text)
             return ''.join(c for c in nfkd if not unicodedata.combining(c))
         
         # Tokeniser la requête (mots individuels, sans stop words, sans ponctuation)
-        raw_tokens = re.findall(r'[a-zA-ZÀ-ÿ]+', search_query.lower())
-        tokens = [_normalize(t) for t in raw_tokens
-                  if len(t) > 2 and t not in STOP_WORDS]
+        raw_tokens_all = re.findall(r'[a-zA-ZÀ-ÿ]+', search_query.lower())
         
-        print(f"🔤 [Search] Tokenisation: '{search_query}' → {tokens} (raw: {raw_tokens})", file=sys.stderr)
+        # Tokens significatifs (> 2 chars, pas de stop words)
+        meaningful_raw = [t for t in raw_tokens_all if len(t) > 2 and t not in STOP_WORDS]
+        meaningful_normalized = [_normalize(t) for t in meaningful_raw]
         
-        if not tokens:
+        print(f"🔤 [Search] Tokenisation: '{search_query}' → raw={meaningful_raw}, normalized={meaningful_normalized}", file=sys.stderr)
+        
+        if not meaningful_raw:
             print(f"⚠️ [Search] Aucun token significatif → résultat vide", file=sys.stderr)
             return []
         
-        async with self.session() as session:
-            # Recherche avec TOUS les tokens (AND) - inclut maintenant le TYPE
-            result = await session.run(
-                """
-                MATCH (e:Entity {memory_id: $memory_id})
-                WHERE ALL(token IN $tokens WHERE 
-                    toLower(e.name) CONTAINS token 
-                    OR toLower(e.description) CONTAINS token
-                    OR toLower(e.type) CONTAINS token
-                )
-                RETURN e.name as name, e.type as type, e.description as description,
-                       e.mention_count as mentions
-                ORDER BY e.mention_count DESC
-                LIMIT $limit
-                """,
-                memory_id=memory_id,
-                tokens=tokens,
-                limit=limit
+        # === Stratégie 1: Fulltext index (accent-insensitive, scoring Lucene) ===
+        # Lazy init de l'index au premier appel
+        if not self._fulltext_index_ready:
+            await self.ensure_fulltext_index()
+        
+        entities = await self._search_fulltext(memory_id, meaningful_raw, limit)
+        
+        if entities:
+            top3 = ", ".join(
+                e["name"] + "=" + str(e.get("score", 0))
+                for e in entities[:3]
             )
-            
-            entities = []
-            async for record in result:
-                entities.append({
-                    "name": record["name"],
-                    "type": record["type"],
-                    "description": record["description"],
-                    "mentions": record["mentions"]
-                })
-            
-            # Si aucun résultat avec AND, réessayer avec OR (plus permissif)
-            if not entities:
-                result = await session.run(
-                    """
-                    MATCH (e:Entity {memory_id: $memory_id})
-                    WHERE ANY(token IN $tokens WHERE 
-                        toLower(e.name) CONTAINS token 
-                        OR toLower(e.description) CONTAINS token
-                        OR toLower(e.type) CONTAINS token
-                    )
-                    RETURN e.name as name, e.type as type, e.description as description,
-                           e.mention_count as mentions
-                    ORDER BY e.mention_count DESC
-                    LIMIT $limit
-                    """,
-                    memory_id=memory_id,
-                    tokens=tokens,
-                    limit=limit
-                )
-                
-                async for record in result:
-                    entities.append({
-                        "name": record["name"],
-                        "type": record["type"],
-                        "description": record["description"],
-                        "mentions": record["mentions"]
-                    })
-            
+            print(f"✅ [Search] Fulltext: {len(entities)} résultats (scores: {top3}...)",
+                  file=sys.stderr)
             return entities
+        
+        # === Stratégie 2: CONTAINS fallback (raw + normalized tokens) ===
+        print(f"🔄 [Search] Fulltext: 0 résultats → fallback CONTAINS", file=sys.stderr)
+        entities = await self._search_contains(memory_id, meaningful_raw, meaningful_normalized, limit)
+        
+        print(f"{'✅' if entities else '❌'} [Search] CONTAINS fallback: {len(entities)} résultats "
+              f"(tokens: {list(set(meaningful_raw + meaningful_normalized))})", file=sys.stderr)
+        return entities
     
     async def get_entity_context(
         self,

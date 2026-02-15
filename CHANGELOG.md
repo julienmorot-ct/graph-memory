@@ -7,6 +7,31 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [0.6.3] — 2026-02-15
+
+### Recherche accent-insensitive + Calibrage seuil RAG
+
+#### Ajouté
+- **Index fulltext Neo4j `standard-folding`** (`graph.py`) — Recherche accent-insensitive via un index Lucene avec ASCII folding (é→e, ç→c, ü→u). `"réversibilité"`, `"reversibilite"`, `"REVERSIBILITE"` matchent tous les 3. Lazy init idempotent au premier appel de `search_entities()`.
+- **`_search_fulltext()`** — Recherche principale via l'index Lucene avec scoring par pertinence, filtrée par `memory_id`.
+- **`_search_contains()` amélioré** — Fallback CONTAINS qui envoie les tokens raw (avec accents) ET normalisés (sans accents) à Neo4j.
+- **`_escape_lucene()`** — Échappement des caractères spéciaux Lucene (`+`, `-`, `*`, `?`, `~`, etc.).
+
+#### Corrigé
+- **Recherche "réversibilité" → 0 résultats** — Python normalisait les accents (`reversibilite`) mais `toLower()` de Neo4j les conservait (`réversibilité`). Désalignement corrigé par l'index fulltext `standard-folding` (principal) + fallback CONTAINS avec double tokens.
+- **RAG quasi inactif (seuil 0.65 trop élevé)** — BGE-M3 produit des scores cosinus ~0.55-0.63 pour les meilleurs chunks. Le seuil 0.65 éliminait 93% des chunks pertinents. Abaissé à **0.58** après benchmark comparatif sur 5 questions × 5 seuils (`scripts/test_rag_thresholds.py`).
+
+#### Modifié
+- **`RAG_SCORE_THRESHOLD` 0.65 → 0.58** — Calibré pour BGE-M3 via benchmark (0.50/0.55/0.58/0.60/0.65 testés sur 5 requêtes × 15 chunks).
+
+#### Refactorisé
+- **`search_entities()`** — Stratégie en 2 niveaux : fulltext Lucene (scoring) → fallback CONTAINS (raw+normalized). 3 nouvelles méthodes privées.
+
+#### Fichiers modifiés
+`graph.py`, `config.py`, `.env.example`, `README.md`
+
+---
+
 ## [0.6.2] — 2026-02-15
 
 ### Interface web graphe améliorée + Progression CLI

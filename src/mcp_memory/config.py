@@ -68,7 +68,7 @@ class Settings(BaseSettings):
     # =========================================================================
     # RAG — Recherche vectorielle
     # =========================================================================
-    rag_score_threshold: float = 0.65  # Score cosinus minimum pour un chunk (en dessous = ignoré)
+    rag_score_threshold: float = 0.58  # Score cosinus minimum pour un chunk BGE-M3 (en dessous = ignoré)
     rag_chunk_limit: int = 8  # Nombre max de chunks retournés par Qdrant
     
     # =========================================================================

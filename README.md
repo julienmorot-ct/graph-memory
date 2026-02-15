@@ -63,7 +63,7 @@ Question en langage naturel
         │  Qdrant recherche dans TOUS les chunks de la mémoire.
         └──▶ Contexte large (chunks seuls)
     │
-    ▼ 2. Filtrage par seuil de pertinence (score cosinus ≥ 0.65)
+    ▼ 2. Filtrage par seuil de pertinence (score cosinus ≥ 0.58)
     │    Les chunks non pertinents sont éliminés.
     │
     ▼ 3. LLM génère la réponse avec citations des documents sources
@@ -98,7 +98,7 @@ Question en langage naturel
 ### Question/Réponse (Graph-Guided RAG)
 - **Graph-Guided RAG** : le graphe identifie les documents pertinents, puis Qdrant recherche les chunks *dans* ces documents — contexte précis et ciblé
 - **Fallback RAG-only** : si le graphe ne trouve rien, recherche vectorielle sur tous les chunks de la mémoire
-- **Seuil de pertinence** (`RAG_SCORE_THRESHOLD=0.65`) : les chunks sous le seuil cosinus sont éliminés — pas de bruit envoyé au LLM
+- **Seuil de pertinence** (`RAG_SCORE_THRESHOLD=0.58`) : les chunks sous le seuil cosinus sont éliminés — pas de bruit envoyé au LLM
 - **Citation des documents sources** dans les réponses (chaque entité inclut son document d'origine)
 - Mode Focus : isolation du sous-graphe lié à une question
 
@@ -215,7 +215,7 @@ cp .env.example .env
 | `MCP_SERVER_PORT`            | `8002`         | Port d'écoute                                  |
 | `MCP_SERVER_DEBUG`           | `false`        | Logs détaillés                                 |
 | `MAX_DOCUMENT_SIZE_MB`       | `50`           | Taille max documents                           |
-| `RAG_SCORE_THRESHOLD`        | `0.65`         | Score cosinus min. pour un chunk RAG (0.0-1.0) |
+| `RAG_SCORE_THRESHOLD`        | `0.58`         | Score cosinus min. pour un chunk RAG BGE-M3 (0.0-1.0) |
 | `RAG_CHUNK_LIMIT`            | `8`            | Nombre max de chunks retournés par Qdrant      |
 | `CHUNK_SIZE`                 | `500`          | Taille cible en tokens par chunk               |
 | `CHUNK_OVERLAP`              | `50`           | Tokens de chevauchement entre chunks           |
@@ -688,6 +688,18 @@ docker compose build mcp-memory && docker compose up -d mcp-memory
 
 ## 📋 Changelog
 
+### v0.6.3 — 15 février 2026
+
+**Recherche accent-insensitive + Calibrage seuil RAG**
+
+- ✨ **Index fulltext Neo4j `standard-folding`** — Recherche accent-insensitive via un index Lucene avec ASCII folding. `"réversibilité"`, `"reversibilite"`, `"REVERSIBILITE"` matchent tous les 3. L'index se crée automatiquement au premier appel.
+- 🐛 **Recherche "réversibilité" → 0 résultats** — Python normalisait les accents mais `toLower()` de Neo4j les conservait. Corrigé par l'index fulltext (principal) + fallback CONTAINS avec double tokens raw+normalized.
+- 🐛 **RAG quasi inactif (seuil 0.65 trop élevé)** — BGE-M3 produit des scores cosinus ~0.55-0.63 pour les meilleurs chunks. Le seuil 0.65 éliminait 93% des chunks pertinents. Abaissé à **0.58** après benchmark comparatif sur 5 questions × 5 seuils (`scripts/test_rag_thresholds.py`).
+- 🔧 **`RAG_SCORE_THRESHOLD` 0.65 → 0.58** — Calibré pour BGE-M3 via benchmark (0.50/0.55/0.58/0.60/0.65).
+- ♻️ **`search_entities()` refactorisé** — Stratégie en 2 niveaux : fulltext Lucene (scoring par pertinence) → fallback CONTAINS (tokens raw + normalisés).
+
+**Fichiers modifiés :** `graph.py`, `config.py`, `.env.example`, `README.md`
+
 ### v0.6.2 — 15 février 2026
 
 **Interface web graphe améliorée + Progression CLI**
@@ -792,4 +804,4 @@ Développé par **[Cloud Temple](https://www.cloud-temple.com)**.
 
 ---
 
-*Graph Memory v0.6.2 — Février 2026*
+*Graph Memory v0.6.3 — Février 2026*

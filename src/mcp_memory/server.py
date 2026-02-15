@@ -840,6 +840,9 @@ async def question_answer(
                 limit=chunk_limit
             )
 
+            # Sauver tous les résultats avant filtrage (pour diagnostic)
+            all_chunk_results = list(chunk_results)
+            
             # Filtrer par seuil de score (en dessous = non pertinent)
             total_before = len(chunk_results)
             chunk_results = [cr for cr in chunk_results if cr.score >= score_threshold]
@@ -861,11 +864,20 @@ async def question_answer(
                   f"{f' | graph-guided: {len(graph_doc_ids)} docs' if graph_doc_ids else ' | tous documents'}", 
                   file=sys.stderr)
             
-            # Log détaillé : score + section + aperçu texte de chaque chunk
+            # Log détaillé : score + section + aperçu texte de chaque chunk RETENU
             for i, cr in enumerate(chunk_results):
                 section = cr.chunk.section_title or cr.chunk.article_number or "—"
                 preview = cr.chunk.text[:80].replace('\n', ' ').strip()
                 print(f"   📎 [{i+1}] score={cr.score:.4f} ✅ | {section} | \"{preview}...\"", file=sys.stderr)
+            
+            # Log des chunks FILTRÉS (sous le seuil) — diagnostic de pertinence RAG
+            if filtered_out > 0:
+                # Recalculer les chunks filtrés pour le log
+                filtered_chunks = [cr for cr in all_chunk_results if cr.score < score_threshold]
+                for i, cr in enumerate(filtered_chunks[:5]):  # Max 5 pour ne pas surcharger
+                    section = cr.chunk.section_title or cr.chunk.article_number or "—"
+                    preview = cr.chunk.text[:60].replace('\n', ' ').strip()
+                    print(f"   📎 [F{i+1}] score={cr.score:.4f} ❌ | {section} | \"{preview}...\"", file=sys.stderr)
 
         except Exception as e:
             print(f"⚠️ [Q&A] Erreur RAG vectoriel: {e}", file=sys.stderr)
