@@ -124,13 +124,28 @@ class SemanticChunker:
         # === PASSE 1 : Détecter la structure ===
         sections = self._detect_sections(text)
         
-        print(f"📐 [Chunker] {len(sections)} sections détectées dans '{filename}'", file=sys.stderr)
+        total_chars = sum(len(s.content) for s in sections)
+        print(f"📐 [Chunker] PASSE 1/3 — {len(sections)} sections détectées dans '{filename}' ({total_chars} chars)", file=sys.stderr)
+        sys.stderr.flush()
+        for i, s in enumerate(sections):
+            art = f" (Art. {s.article_number})" if s.article_number else ""
+            print(f"   📄 [{i+1}/{len(sections)}] {s.title[:70]}{art} — {len(s.content)} chars, level={s.level}", file=sys.stderr)
+        sys.stderr.flush()
         
         # === PASSE 2 : Découper chaque section en phrases ===
+        print(f"📐 [Chunker] PASSE 2/3 — Découpage en phrases...", file=sys.stderr)
+        sys.stderr.flush()
         sentence_groups = self._sections_to_sentence_groups(sections)
+        total_sentences = sum(len(g.sentences) for g in sentence_groups)
+        print(f"📐 [Chunker] PASSE 2/3 — {total_sentences} phrases dans {len(sentence_groups)} groupes", file=sys.stderr)
+        sys.stderr.flush()
         
         # === PASSE 3 : Regrouper les phrases en chunks avec overlap ===
+        print(f"📐 [Chunker] PASSE 3/3 — Fusion en chunks (cible: {self._chunk_size} tokens, overlap: {self._chunk_overlap})...", file=sys.stderr)
+        sys.stderr.flush()
         raw_chunks = self._merge_into_chunks(sentence_groups)
+        print(f"📐 [Chunker] PASSE 3/3 — {len(raw_chunks)} chunks bruts générés", file=sys.stderr)
+        sys.stderr.flush()
         
         # === Finaliser les Chunk avec métadonnées ===
         total = len(raw_chunks)
@@ -576,8 +591,18 @@ class SemanticChunker:
                     
                     # Overlap : reprendre les dernières phrases
                     overlap_sentences = self._compute_overlap(current_sentences)
-                    current_sentences = overlap_sentences
-                    current_tokens = sum(len(s) // 4 for s in current_sentences)
+                    overlap_tokens = sum(len(s) // 4 for s in overlap_sentences)
+                    
+                    # PROTECTION BOUCLE INFINIE : si l'overlap + prochaine phrase
+                    # dépasse la taille cible, on FORCE l'avancement en vidant l'overlap
+                    if overlap_tokens + sent_tokens + prefix_tokens > self._chunk_size:
+                        # La phrase est trop grosse même avec juste l'overlap → on prend
+                        # la phrase seule dans le prochain chunk (sans overlap)
+                        current_sentences = []
+                        current_tokens = 0
+                    else:
+                        current_sentences = overlap_sentences
+                        current_tokens = overlap_tokens
                 else:
                     i += 1  # Éviter boucle infinie
         

@@ -50,6 +50,7 @@ const displayOptions = {
     showEdgeLabels: true,   // Labels texte sur les arêtes
     showShadows: true,      // Ombres sur les nœuds
     showSmooth: true,       // Arêtes courbes (smooth) vs lignes droites
+    showMentions: true,     // Liens Document ↔ Entité (MENTIONS) + nœuds Document
     layout: 'barnesHut'     // 'barnesHut' | 'forceAtlas2' | 'hierarchicalUD' | 'hierarchicalLR'
 };
 
@@ -110,9 +111,9 @@ function applyFilters() {
         if (isIsolated && filterState.isolatedNodes.has(n.id)) return true;
 
         // Les documents sont visibles si leur ID est dans visibleDocuments
-        // Note: les nœuds document ont un id préfixé "doc:xxx" mais
-        // visibleDocuments stocke les IDs bruts "xxx" (depuis data.documents)
+        // ET si le toggle MENTIONS est actif (sinon on masque les docs)
         if (n.node_type === 'document') {
+            if (!displayOptions.showMentions) return false;
             const rawId = n.id.startsWith('doc:') ? n.id.substring(4) : n.id;
             return filterState.visibleDocuments.has(rawId);
         }
@@ -148,6 +149,8 @@ function applyFilters() {
     let filteredEdges = data.edges.filter(e => {
         // L'arête doit connecter deux nœuds visibles
         if (!visibleNodeIds.has(e.from) || !visibleNodeIds.has(e.to)) return false;
+        // Si le toggle MENTIONS est OFF, masquer les arêtes MENTIONS
+        if (!displayOptions.showMentions && e.type === 'MENTIONS') return false;
         // Le type de relation doit être visible
         return filterState.visibleEdgeTypes.has(e.type);
     });

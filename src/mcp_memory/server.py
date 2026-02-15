@@ -19,7 +19,7 @@ from dotenv import load_dotenv
 # Charger .env avant les imports qui en dépendent
 load_dotenv()
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import FastMCP, Context
 
 from .config import get_settings
 from .auth.middleware import AuthMiddleware, LoggingMiddleware, StaticFilesMiddleware
@@ -316,7 +316,8 @@ async def memory_ingest(
     metadata: Optional[Dict[str, Any]] = None,
     force: bool = False,
     source_path: Optional[str] = None,
-    source_modified_at: Optional[str] = None
+    source_modified_at: Optional[str] = None,
+    ctx: Optional[Context] = None
 ) -> dict:
     """
     Ingère un document dans une mémoire.
@@ -346,13 +347,41 @@ async def memory_ingest(
         Résultat de l'ingestion avec statistiques
     """
     try:
+        import time as _time
+        import gc
+        _t0 = _time.monotonic()
+        _steps_log = []
+        
+        def _mem_mb():
+            """Retourne l'usage mémoire RSS du processus en MB."""
+            try:
+                import resource
+                return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024 * 1024)  # macOS = bytes
+            except Exception:
+                return 0
+        
+        # Helper pour logger les étapes (ctx.info si disponible + stderr)
+        async def _log(msg):
+            mem = _mem_mb()
+            _steps_log.append({"t": round(_time.monotonic() - _t0, 1), "msg": msg})
+            print(f"📋 [Ingest] {msg} [RSS={mem:.0f}MB]", file=sys.stderr)
+            sys.stderr.flush()
+            if ctx:
+                try:
+                    await ctx.info(msg)
+                except Exception:
+                    pass
+        
         # Vérifier l'accès à la mémoire
         access_err = check_memory_access(memory_id)
         if access_err:
             return access_err
         
-        # Décoder le contenu
+        # Décoder le contenu (libérer content_base64 ensuite — peut être volumineux)
         content = base64.b64decode(content_base64)
+        content_size = len(content)
+        await _log(f"📦 Décodage: {content_size} bytes ({filename})")
+        del content_base64
         
         # Vérifier si la mémoire existe
         memory = await get_graph().get_memory(memory_id)
@@ -374,20 +403,24 @@ async def memory_ingest(
         
         # Si force=True et document existant, supprimer l'ancien d'abord
         if existing and force:
-            print(f"🔄 [Ingest] Force: suppression de l'ancien document {existing.id}", file=sys.stderr)
+            await _log("🔄 Suppression de l'ancienne version...")
             delete_result = await get_graph().delete_document(memory_id, existing.id)
             print(f"🔄 [Ingest] Ancien supprimé: {delete_result.get('entities_deleted', 0)} entités orphelines, "
                   f"{delete_result.get('relations_deleted', 0)} relations", file=sys.stderr)
         
         # Upload vers S3
+        await _log("📤 Upload S3...")
         s3_result = await get_storage().upload_document(
             memory_id=memory_id,
             filename=filename,
             content=content,
             metadata=metadata
         )
+        await _log("✅ Upload S3 terminé")
         
         # Extraire le texte du document
+        file_ext = filename.lower().rsplit('.', 1)[-1] if '.' in filename else ''
+        await _log(f"📄 Extraction texte ({file_ext})...")
         text = _extract_text(content, filename)
         
         if not text:
@@ -397,22 +430,50 @@ async def memory_ingest(
                 "s3_uri": s3_result["uri"]
             }
         
+        await _log(f"📄 Texte extrait: {len(text)} caractères")
+        
+        # Libérer les bytes bruts (on a le texte + déjà uploadé S3)
+        del content
+        gc.collect()
+        
         # Extraction des entités/relations via LLM avec l'ontologie de la mémoire
-        # Utilise extract_with_ontology_chunked() qui gère automatiquement :
-        # - Documents courts (< EXTRACTION_CHUNK_SIZE) → 1 seul appel LLM
-        # - Documents longs → N appels séquentiels avec contexte cumulatif
         if not memory.ontology:
             return {
                 "status": "error",
                 "message": f"La mémoire '{memory_id}' n'a pas d'ontologie définie. "
                            f"Recréez-la avec une ontologie valide."
             }
-        extraction = await get_extractor().extract_with_ontology_chunked(text, memory.ontology)
+        
+        # Progress callback pour l'extracteur → route vers ctx.info()
+        async def _extraction_progress(event: str, data: dict):
+            if event == "extraction_start":
+                mode = data.get("mode", "single")
+                chunks_total = data.get("chunks_total", 1)
+                text_len = data.get("text_length", 0)
+                if mode == "chunked":
+                    await _log(f"🔍 Extraction LLM: {chunks_total} chunks ({text_len} chars)")
+                else:
+                    await _log(f"🔍 Extraction LLM: 1 chunk ({text_len} chars)")
+            elif event == "extraction_chunk_done":
+                chunk = data.get("chunk", 0)
+                total = data.get("chunks_total", 1)
+                e_new = data.get("entities_new", 0)
+                r_new = data.get("relations_new", 0)
+                e_cum = data.get("entities_cumul", 0)
+                r_cum = data.get("relations_cumul", 0)
+                await _log(f"🔍 Chunk {chunk}/{total} terminé: +{e_new}E +{r_new}R (cumul: {e_cum}E {r_cum}R)")
+        
+        await _log(f"🔍 Démarrage extraction LLM (ontologie: {memory.ontology})...")
+        extraction = await get_extractor().extract_with_ontology_chunked(
+            text, memory.ontology, progress_callback=_extraction_progress
+        )
+        await _log(f"✅ Extraction terminée: {len(extraction.entities)} entités, {len(extraction.relations)} relations")
         
         # Déduire le type de fichier depuis l'extension
         file_ext = filename.lower().rsplit('.', 1)[-1] if '.' in filename else ''
         
         # Créer le document dans le graphe avec métadonnées enrichies
+        await _log("📊 Stockage dans le graphe Neo4j...")
         doc_id = str(uuid.uuid4())
         document = await get_graph().add_document(
             memory_id=memory_id,
@@ -423,7 +484,7 @@ async def memory_ingest(
             metadata=metadata,
             source_path=source_path,
             source_modified_at=source_modified_at,
-            size_bytes=len(content),
+            size_bytes=content_size,
             text_length=len(text),
             content_type=file_ext
         )
@@ -436,17 +497,29 @@ async def memory_ingest(
         )
         
         # === RAG Vectoriel : Chunking + Embedding + Qdrant (synchrone strict) ===
+        await _log("🧩 Vectorisation RAG (chunking + embedding + Qdrant)...")
         chunks_stored = 0
+        EMBED_BATCH_SIZE = 5  # Envoyer max 5 chunks par appel API embedding
         try:
             # S'assurer que la collection Qdrant existe
             await get_vector_store().ensure_collection(memory_id)
+            await _log("🧩 Collection Qdrant prête")
+            sys.stderr.flush()
             
             # Si force, supprimer les anciens chunks Qdrant
             if existing and force:
                 await get_vector_store().delete_document_chunks(memory_id, existing.id)
+                await _log("🧩 Anciens chunks supprimés")
+                sys.stderr.flush()
             
-            # Chunker le texte
-            chunks = get_chunker().chunk_document(text, filename)
+            # Chunker le texte (CPU-bound → thread pool pour ne pas bloquer l'event loop)
+            await _log("🧩 Chunking sémantique en cours...")
+            sys.stderr.flush()
+            import asyncio
+            loop = asyncio.get_event_loop()
+            chunks = await loop.run_in_executor(None, get_chunker().chunk_document, text, filename)
+            await _log(f"🧩 Chunking terminé: {len(chunks)} chunks créés")
+            sys.stderr.flush()
             
             if chunks:
                 # Enrichir chaque chunk avec doc_id et memory_id
@@ -454,29 +527,56 @@ async def memory_ingest(
                     chunk.doc_id = doc_id
                     chunk.memory_id = memory_id
                 
-                # Générer les embeddings (batch)
+                # Générer les embeddings par BATCHES (évite surcharge API)
                 chunk_texts = [c.text for c in chunks]
-                embeddings = await get_embedder().embed_texts(chunk_texts)
+                total_chunks = len(chunk_texts)
+                all_embeddings = []
+                
+                for batch_start in range(0, total_chunks, EMBED_BATCH_SIZE):
+                    batch_end = min(batch_start + EMBED_BATCH_SIZE, total_chunks)
+                    batch_num = batch_start // EMBED_BATCH_SIZE + 1
+                    total_batches = (total_chunks + EMBED_BATCH_SIZE - 1) // EMBED_BATCH_SIZE
+                    batch_texts = chunk_texts[batch_start:batch_end]
+                    
+                    await _log(f"🔢 Embedding batch {batch_num}/{total_batches} ({len(batch_texts)} chunks)")
+                    sys.stderr.flush()
+                    
+                    try:
+                        batch_embeddings = await get_embedder().embed_texts(batch_texts)
+                        all_embeddings.extend(batch_embeddings)
+                        await _log(f"✅ Batch {batch_num}/{total_batches} OK ({len(all_embeddings)}/{total_chunks})")
+                        sys.stderr.flush()
+                    except Exception as embed_err:
+                        print(f"❌ [Ingest] Erreur embedding batch {batch_num}: {embed_err}", file=sys.stderr)
+                        sys.stderr.flush()
+                        raise
                 
                 # Stocker dans Qdrant
+                await _log(f"📦 Stockage Qdrant ({len(all_embeddings)} vecteurs)...")
+                sys.stderr.flush()
                 chunks_stored = await get_vector_store().store_chunks(
                     memory_id=memory_id,
                     doc_id=doc_id,
                     filename=filename,
                     chunks=chunks,
-                    embeddings=embeddings
+                    embeddings=all_embeddings
                 )
                 
-                print(f"✅ [Ingest] RAG: {chunks_stored} chunks vectorisés pour {filename}", file=sys.stderr)
+                await _log(f"✅ RAG: {chunks_stored} chunks vectorisés")
+                sys.stderr.flush()
         except Exception as e:
             # Couplage strict : si Qdrant échoue, on fait échouer l'ingestion
             print(f"❌ [Ingest] Erreur RAG vectoriel: {e}", file=sys.stderr)
+            sys.stderr.flush()
             raise RuntimeError(f"Échec vectorisation Qdrant (couplage strict): {e}")
         
         # Compter les types de relations
         from collections import Counter
         relation_types = Counter(r.type for r in extraction.relations)
         entity_types = Counter(e.type.value if hasattr(e.type, 'value') else str(e.type) for e in extraction.entities)
+        
+        _elapsed = round(_time.monotonic() - _t0, 1)
+        await _log(f"🏁 Ingestion terminée en {_elapsed}s")
         
         return {
             "status": "ok",
@@ -494,7 +594,9 @@ async def memory_ingest(
             "relation_types": dict(relation_types),
             "chunks_stored": chunks_stored,
             "summary": extraction.summary,
-            "key_topics": extraction.key_topics
+            "key_topics": extraction.key_topics,
+            "steps": _steps_log,
+            "elapsed_seconds": _elapsed,
         }
         
     except Exception as e:

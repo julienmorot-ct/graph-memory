@@ -350,6 +350,7 @@ class ExtractorService:
         self,
         text: str,
         ontology_name: str = "default",
+        progress_callback=None,
     ) -> ExtractionResult:
         """
         Extrait les entités et relations d'un texte long en le découpant en chunks.
@@ -374,12 +375,34 @@ class ExtractorService:
         if len(text) <= chunk_size:
             print(f"📄 [Extractor] Document court ({len(text)} chars ≤ {chunk_size}) → extraction simple",
                   file=sys.stderr)
-            return await self.extract_with_ontology(text, ontology_name)
+            if progress_callback:
+                await progress_callback("extraction_start", {
+                    "chunks_total": 1, "chunk_current": 1,
+                    "text_length": len(text), "mode": "single"
+                })
+            result = await self.extract_with_ontology(text, ontology_name)
+            if progress_callback:
+                await progress_callback("extraction_chunk_done", {
+                    "chunk": 1, "chunks_total": 1,
+                    "entities_new": len(result.entities),
+                    "relations_new": len(result.relations),
+                    "entities_cumul": len(result.entities),
+                    "relations_cumul": len(result.relations),
+                })
+            return result
         
         # Découper le texte en chunks aux frontières de sections
         chunks = self._split_text_for_extraction(text, chunk_size)
         print(f"📐 [Extractor] Document long ({len(text)} chars) → {len(chunks)} chunks d'extraction",
               file=sys.stderr)
+        
+        # Notifier le début de l'extraction multi-chunk
+        if progress_callback:
+            await progress_callback("extraction_start", {
+                "chunks_total": len(chunks), "chunk_current": 0,
+                "text_length": len(text), "mode": "chunked",
+                "chunk_sizes": [len(c) for c in chunks],
+            })
         
         # Charger l'ontologie (une seule fois)
         ontology_manager = get_ontology_manager()
@@ -450,6 +473,17 @@ class ExtractorService:
                 if result.summary:
                     all_summaries.append(result.summary)
                 all_key_topics.extend(result.key_topics)
+                
+                # Notifier la progression
+                if progress_callback:
+                    await progress_callback("extraction_chunk_done", {
+                        "chunk": chunk_num, "chunks_total": len(chunks),
+                        "chunk_chars": len(chunk_text),
+                        "entities_new": len(result.entities),
+                        "relations_new": len(result.relations),
+                        "entities_cumul": len(all_entities),
+                        "relations_cumul": len(all_relations),
+                    })
                 
             except APITimeoutError:
                 print(f"⏰ [Extractor] Timeout chunk {chunk_num}/{len(chunks)} — on continue", file=sys.stderr)

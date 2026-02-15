@@ -70,7 +70,8 @@ class MCPClient:
                 raise ServerNotRunningError(self.base_url)
             raise
 
-    async def call_tool(self, tool_name: str, args: dict, max_retries: int = 2) -> dict:
+    async def call_tool(self, tool_name: str, args: dict, max_retries: int = 2,
+                        on_progress=None) -> dict:
         """
         Appeler un outil MCP via le protocole SSE.
 
@@ -80,6 +81,14 @@ class MCPClient:
         
         Retry automatique en cas de déconnexion SSE (RemoteProtocolError,
         ClosedResourceError) — fréquent pour les opérations longues (ingestion).
+        
+        Args:
+            tool_name: Nom de l'outil MCP
+            args: Arguments de l'outil
+            max_retries: Nombre max de tentatives (défaut: 2)
+            on_progress: Callback async appelée pour chaque notification de
+                         progression (ctx.info() côté serveur). Signature:
+                         async def on_progress(message: str) -> None
         """
         import asyncio
         import sys
@@ -100,6 +109,30 @@ class MCPClient:
                 ) as (read, write):
                     async with ClientSession(read, write) as session:
                         await session.initialize()
+                        
+                        # Capturer les notifications de progression (ctx.info())
+                        # Le SDK MCP expose _received_notification() comme hook surchargeable
+                        if on_progress:
+                            _original_received = session._received_notification
+                            
+                            async def _patched_received_notification(notification):
+                                try:
+                                    # Le SDK wrappe dans un type union : notification.root
+                                    # est le vrai objet (ex: LoggingMessageNotification)
+                                    root = getattr(notification, 'root', notification)
+                                    params = getattr(root, 'params', None)
+                                    if params:
+                                        # ctx.info() → LoggingMessageNotification.params.data
+                                        msg = getattr(params, 'data', None)
+                                        if msg:
+                                            await on_progress(str(msg))
+                                except Exception:
+                                    pass
+                                # Appeler le handler original
+                                await _original_received(notification)
+                            
+                            session._received_notification = _patched_received_notification
+                        
                         result = await session.call_tool(tool_name, args)
                         return json.loads(result.content[0].text)
             except ConnectionRefusedError:

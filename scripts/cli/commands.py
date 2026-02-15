@@ -464,32 +464,198 @@ def document_ingest(ctx, memory_id, file_path, force, source_path):
     """📥 Ingérer un document dans une mémoire."""
     async def _run():
         try:
+            import time as _time
             from datetime import datetime, timezone
+            from rich.live import Live
+            from rich.table import Table
+            from rich.panel import Panel
 
             with open(file_path, "rb") as f:
                 content_bytes = f.read()
             content_b64 = base64.b64encode(content_bytes).decode("utf-8")
             filename = os.path.basename(file_path)
+            file_size = len(content_bytes)
+            file_ext = filename.lower().rsplit('.', 1)[-1] if '.' in filename else '?'
             
-            # Métadonnées enrichies : chemin source et date de modification
+            # Affichage pré-vol
+            console.print(Panel.fit(
+                f"[bold]Fichier:[/bold]  [cyan]{filename}[/cyan]\n"
+                f"[bold]Taille:[/bold]  [cyan]{_format_size_simple(file_size)}[/cyan]  "
+                f"[bold]Type:[/bold] [cyan]{file_ext}[/cyan]  "
+                f"[bold]Mémoire:[/bold] [cyan]{memory_id}[/cyan]"
+                + (f"\n[bold]Mode:[/bold]   [yellow]Force (ré-ingestion)[/yellow]" if force else ""),
+                title="📥 Ingestion", border_style="blue",
+            ))
+            
+            # Métadonnées enrichies
             effective_source_path = source_path or os.path.abspath(file_path)
             mtime = os.path.getmtime(file_path)
             source_modified_at = datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat()
 
             client = MCPClient(ctx.obj["url"], ctx.obj["token"])
-
-            with Progress(SpinnerColumn(), TextColumn("{task.description}"), console=console) as p:
-                p.add_task(f"Ingestion de {filename}…", total=None)
-                result = await client.call_tool("memory_ingest", {
-                    "memory_id": memory_id,
-                    "content_base64": content_b64,
-                    "filename": filename,
-                    "force": force,
-                    "source_path": effective_source_path,
-                    "source_modified_at": source_modified_at,
-                })
+            
+            t0 = _time.monotonic()
+            import asyncio
+            import re as _re
+            
+            # État de progression parsé depuis les messages serveur
+            _progress_state = {
+                "phase": "init",          # init, upload, extract_text, extraction, neo4j, chunking, embedding, qdrant, done
+                "phase_label": "⏳ Connexion...",
+                "extraction_current": 0,
+                "extraction_total": 0,
+                "embedding_current": 0,
+                "embedding_total": 0,
+                "entities": 0,
+                "relations": 0,
+                "chunks_rag": 0,
+                "last_msg": "",
+            }
+            
+            def _make_bar(current, total, width=20):
+                """Génère une barre de progression ASCII."""
+                if total <= 0:
+                    return ""
+                pct = min(current / total, 1.0)
+                filled = int(width * pct)
+                bar = "█" * filled + "░" * (width - filled)
+                return f"{bar} {pct*100:.0f}%"
+            
+            async def _on_progress(msg: str):
+                """Parse les messages serveur et met à jour l'état de progression."""
+                st = _progress_state
+                st["last_msg"] = msg
+                
+                # Phase S3
+                if "Upload S3" in msg and "terminé" not in msg:
+                    st["phase"] = "upload"
+                    st["phase_label"] = "📤 Upload S3"
+                elif "Upload S3 terminé" in msg:
+                    st["phase_label"] = "✅ Upload S3"
+                
+                # Phase extraction texte
+                elif "Extraction texte" in msg:
+                    st["phase"] = "extract_text"
+                    st["phase_label"] = "📄 Extraction texte"
+                elif "Texte extrait" in msg:
+                    st["phase_label"] = "✅ Texte extrait"
+                
+                # Phase extraction LLM
+                elif "Extraction LLM:" in msg:
+                    m = _re.search(r'(\d+)\s*chunks?\s*\(', msg)
+                    if m:
+                        st["extraction_total"] = int(m.group(1))
+                    st["phase"] = "extraction"
+                    st["phase_label"] = "🔍 Extraction LLM"
+                    st["extraction_current"] = 0
+                elif "Chunk " in msg and "terminé" in msg:
+                    m = _re.search(r'Chunk\s+(\d+)/(\d+)', msg)
+                    if m:
+                        st["extraction_current"] = int(m.group(1))
+                        st["extraction_total"] = int(m.group(2))
+                    # Extraire cumul entités/relations
+                    m2 = _re.search(r'cumul:\s*(\d+)E\s*(\d+)R', msg)
+                    if m2:
+                        st["entities"] = int(m2.group(1))
+                        st["relations"] = int(m2.group(2))
+                elif "Extraction terminée" in msg:
+                    m = _re.search(r'(\d+)\s*entités.*?(\d+)\s*relations', msg)
+                    if m:
+                        st["entities"] = int(m.group(1))
+                        st["relations"] = int(m.group(2))
+                    st["extraction_current"] = st["extraction_total"]
+                    st["phase_label"] = "✅ Extraction LLM"
+                
+                # Phase Neo4j
+                elif "Stockage dans le graphe" in msg:
+                    st["phase"] = "neo4j"
+                    st["phase_label"] = "📊 Stockage Neo4j"
+                
+                # Phase RAG : chunking
+                elif "Chunking sémantique" in msg:
+                    st["phase"] = "chunking"
+                    st["phase_label"] = "🧩 Chunking RAG"
+                elif "Chunking terminé" in msg:
+                    m = _re.search(r'(\d+)\s*chunks', msg)
+                    if m:
+                        st["chunks_rag"] = int(m.group(1))
+                    st["phase_label"] = f"✅ {st['chunks_rag']} chunks RAG"
+                
+                # Phase RAG : embedding
+                elif "Embedding batch" in msg:
+                    st["phase"] = "embedding"
+                    m = _re.search(r'batch\s+(\d+)/(\d+)', msg)
+                    if m:
+                        st["embedding_current"] = int(m.group(1)) - 1  # en cours, pas terminé
+                        st["embedding_total"] = int(m.group(2))
+                    st["phase_label"] = "🔢 Embedding"
+                elif "Batch " in msg and "OK" in msg:
+                    m = _re.search(r'Batch\s+(\d+)/(\d+)', msg)
+                    if m:
+                        st["embedding_current"] = int(m.group(1))
+                        st["embedding_total"] = int(m.group(2))
+                
+                # Phase Qdrant stockage
+                elif "Stockage Qdrant" in msg:
+                    st["phase"] = "qdrant"
+                    st["phase_label"] = "📦 Stockage Qdrant"
+                elif "RAG:" in msg and "chunks vectorisés" in msg:
+                    st["embedding_current"] = st["embedding_total"]
+                    st["phase_label"] = "✅ RAG vectoriel"
+                
+                # Terminé
+                elif "Ingestion terminée" in msg:
+                    st["phase"] = "done"
+                    st["phase_label"] = "🏁 Terminé"
+            
+            # Affichage en temps réel avec Rich Live
+            from rich.text import Text
+            
+            with Live(console=console, refresh_per_second=4, transient=True) as live:
+                async def _update_display():
+                    while True:
+                        elapsed = _time.monotonic() - t0
+                        m, s = divmod(int(elapsed), 60)
+                        st = _progress_state
+                        
+                        lines = []
+                        lines.append(f"  [bold]{st['phase_label']}[/bold]  [dim]⏱ {m:02d}:{s:02d}[/dim]")
+                        
+                        # Barre extraction LLM
+                        if st["extraction_total"] > 0:
+                            bar = _make_bar(st["extraction_current"], st["extraction_total"])
+                            color = "green" if st["extraction_current"] >= st["extraction_total"] else "yellow"
+                            lines.append(f"  [{color}]🔍 Extraction: {bar} ({st['extraction_current']}/{st['extraction_total']} chunks)[/{color}]")
+                            if st["entities"] or st["relations"]:
+                                lines.append(f"  [dim]   → {st['entities']} entités, {st['relations']} relations[/dim]")
+                        
+                        # Barre embedding
+                        if st["embedding_total"] > 0:
+                            bar = _make_bar(st["embedding_current"], st["embedding_total"])
+                            color = "green" if st["embedding_current"] >= st["embedding_total"] else "cyan"
+                            lines.append(f"  [{color}]🔢 Embedding:  {bar} ({st['embedding_current']}/{st['embedding_total']} batches)[/{color}]")
+                        
+                        text = Text.from_markup("\n".join(lines))
+                        live.update(text)
+                        await asyncio.sleep(0.25)
+                
+                display_task = asyncio.create_task(_update_display())
+                try:
+                    result = await client.call_tool("memory_ingest", {
+                        "memory_id": memory_id,
+                        "content_base64": content_b64,
+                        "filename": filename,
+                        "force": force,
+                        "source_path": effective_source_path,
+                        "source_modified_at": source_modified_at,
+                    }, on_progress=_on_progress)
+                finally:
+                    display_task.cancel()
+            
+            elapsed = _time.monotonic() - t0
 
             if result.get("status") == "ok":
+                result["_elapsed_seconds"] = round(elapsed, 1)
                 show_ingest_result(result)
             elif result.get("status") == "already_exists":
                 console.print(f"[yellow]⚠️ Déjà ingéré: {result.get('document_id')} (--force pour réingérer)[/yellow]")

@@ -24,6 +24,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     libffi-dev \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Copie et installation des dépendances Python
@@ -40,9 +41,9 @@ COPY src/ ./src/
 # Port exposé
 EXPOSE 8002
 
-# Healthcheck
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import httpx; httpx.get('http://localhost:8002/sse', timeout=5)" || exit 1
+# Healthcheck (curl = léger, pas de fork Python qui consomme 50MB+)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
+    CMD curl -sf http://localhost:8002/sse --max-time 5 -o /dev/null || exit 1
 
 # Point d'entrée
 ENTRYPOINT ["python", "-m", "src.mcp_memory.server"]

@@ -524,30 +524,78 @@ async def cmd_ingest(client: MCPClient, state: dict, args: str):
         return
 
     filename = os.path.basename(file_path)
-    console.print(f"[dim]📥 Ingestion de {filename} dans {mem}...[/dim]")
+    file_size = os.path.getsize(file_path)
+    file_ext = filename.lower().rsplit('.', 1)[-1] if '.' in filename else '?'
+
+    def _fmt_size(n):
+        for u in ['B', 'KB', 'MB', 'GB']:
+            if n < 1024:
+                return f"{n:.1f} {u}"
+            n /= 1024
+        return f"{n:.1f} TB"
+
+    # Affichage pré-vol
+    console.print(Panel.fit(
+        f"[bold]Fichier:[/bold]  [cyan]{filename}[/cyan]\n"
+        f"[bold]Taille:[/bold]  [cyan]{_fmt_size(file_size)}[/cyan]  "
+        f"[bold]Type:[/bold] [cyan]{file_ext}[/cyan]  "
+        f"[bold]Mémoire:[/bold] [cyan]{mem}[/cyan]"
+        + (f"\n[bold]Mode:[/bold]   [yellow]Force (ré-ingestion)[/yellow]" if force else ""),
+        title="📥 Ingestion", border_style="blue",
+    ))
 
     try:
+        import time as _time
         from datetime import datetime, timezone
+        from rich.progress import Progress, SpinnerColumn, TextColumn
 
         with open(file_path, "rb") as f:
             content_bytes = f.read()
         content_b64 = base64.b64encode(content_bytes).decode("utf-8")
         
-        # Métadonnées enrichies : chemin source absolu et date de modification
+        # Métadonnées enrichies
         source_path = os.path.abspath(file_path)
         mtime = os.path.getmtime(file_path)
         source_modified_at = datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat()
 
-        result = await client.call_tool("memory_ingest", {
-            "memory_id": mem,
-            "content_base64": content_b64,
-            "filename": filename,
-            "force": force,
-            "source_path": source_path,
-            "source_modified_at": source_modified_at,
-        })
+        t0 = _time.monotonic()
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("{task.description}"),
+            TextColumn("[dim]{task.fields[elapsed]}[/dim]"),
+            console=console, transient=True,
+        ) as p:
+            task = p.add_task(
+                f"S3 → LLM → Neo4j → Qdrant",
+                total=None, elapsed="",
+            )
+            
+            import asyncio
+            async def _update_timer():
+                while True:
+                    elapsed = _time.monotonic() - t0
+                    m, s = divmod(int(elapsed), 60)
+                    p.update(task, elapsed=f"⏱ {m:02d}:{s:02d}")
+                    await asyncio.sleep(1)
+            
+            timer_task = asyncio.create_task(_update_timer())
+            try:
+                result = await client.call_tool("memory_ingest", {
+                    "memory_id": mem,
+                    "content_base64": content_b64,
+                    "filename": filename,
+                    "force": force,
+                    "source_path": source_path,
+                    "source_modified_at": source_modified_at,
+                })
+            finally:
+                timer_task.cancel()
+        
+        elapsed = _time.monotonic() - t0
 
         if result.get("status") == "ok":
+            result["_elapsed_seconds"] = round(elapsed, 1)
             show_ingest_result(result)
         elif result.get("status") == "already_exists":
             console.print(f"[yellow]⚠️ Déjà ingéré: {result.get('document_id')} (--force pour réingérer)[/yellow]")

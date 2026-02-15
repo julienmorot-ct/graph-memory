@@ -217,45 +217,105 @@ def show_entity_context(context: dict):
 # Affichage d'ingestion
 # =============================================================================
 
+def _colorize_step(msg: str) -> str:
+    """Colorie une étape d'ingestion selon son type."""
+    # Mapping emoji → couleur Rich
+    color_map = {
+        "📦": "cyan",      # Décodage
+        "📤": "blue",      # Upload S3
+        "📄": "white",     # Extraction texte
+        "🔍": "yellow",    # LLM extraction
+        "📊": "magenta",   # Neo4j
+        "🧩": "cyan",      # RAG/Chunking
+        "🔢": "blue",      # Embedding
+        "📦": "cyan",      # Stockage Qdrant
+        "✅": "green",     # Succès
+        "🔄": "yellow",    # Force/suppression
+        "🏁": "green bold", # Terminé
+    }
+    for emoji, color in color_map.items():
+        if msg.startswith(emoji):
+            return f"[{color}]{msg}[/{color}]"
+    return msg
+
+
 def show_ingest_result(result: dict):
-    """Affiche le résultat d'une ingestion."""
+    """Affiche le résultat d'une ingestion avec timeline colorée + panneau enrichi."""
     doc_id = result.get("document_id", "?")
+    filename = result.get("filename", "?")
     e_new = result.get("entities_created", 0)
     e_merged = result.get("entities_merged", 0)
     r_new = result.get("relations_created", 0)
     r_merged = result.get("relations_merged", 0)
+    chunks = result.get("chunks_stored", 0)
+    elapsed = result.get("elapsed_seconds", result.get("_elapsed_seconds", None))
+    size_bytes = result.get("size_bytes", 0)
 
-    console.print(f"[green]✅ Document ingéré![/green]")
-    console.print(f"   ID: [cyan]{doc_id}[/cyan]")
-    console.print(f"   Entités: [cyan]{e_new}[/cyan] nouvelles + [yellow]{e_merged}[/yellow] fusionnées = [bold]{e_new + e_merged}[/bold]")
-    console.print(f"   Relations: [cyan]{r_new}[/cyan] nouvelles + [yellow]{r_merged}[/yellow] fusionnées = [bold]{r_new + r_merged}[/bold]")
+    # === Timeline des étapes (si disponible) ===
+    steps = result.get("steps", [])
+    if steps:
+        step_lines = []
+        for step in steps:
+            t = step.get("t", 0)
+            msg = step.get("msg", "")
+            m, s = divmod(int(t), 60)
+            colored = _colorize_step(msg)
+            step_lines.append(f"  [dim]{m:02d}:{s:02d}[/dim]  {colored}")
+        console.print(Panel.fit(
+            "\n".join(step_lines),
+            title="📋 Pipeline d'ingestion",
+            border_style="blue",
+        ))
 
-    # Types d'entités
+    # === Panneau résultat ===
+    timing_str = ""
+    if elapsed is not None:
+        m, s = divmod(int(elapsed), 60)
+        timing_str = f"  [dim]⏱ {m:02d}:{s:02d}[/dim]"
+
+    size_str = _format_size(size_bytes) if size_bytes else ""
+
+    lines = []
+    lines.append(f"[bold]Fichier:[/bold]   [cyan]{filename}[/cyan]" + (f"  ({size_str})" if size_str else ""))
+    lines.append(f"[bold]ID:[/bold]        [dim]{doc_id}[/dim]")
+    lines.append(f"[bold]Entités:[/bold]   [cyan]{e_new}[/cyan] nouvelles + [yellow]{e_merged}[/yellow] fusionnées = [bold]{e_new + e_merged}[/bold]")
+    lines.append(f"[bold]Relations:[/bold] [cyan]{r_new}[/cyan] nouvelles + [yellow]{r_merged}[/yellow] fusionnées = [bold]{r_new + r_merged}[/bold]")
+    if chunks > 0:
+        lines.append(f"[bold]RAG:[/bold]       [green]{chunks}[/green] chunks vectorisés")
+
+    # Types d'entités (compact)
     entity_types = result.get("entity_types", {})
     if entity_types:
-        types_str = ", ".join(
+        types_str = " ".join(
             f"[magenta]{t}[/magenta]:{c}"
             for t, c in sorted(entity_types.items(), key=lambda x: -x[1])
         )
-        console.print(f"   Types entités: {types_str}")
+        lines.append(f"[bold]Types E:[/bold]   {types_str}")
 
-    # Types de relations
+    # Types de relations (compact)
     relation_types = result.get("relation_types", {})
     if relation_types:
-        rels_str = ", ".join(
+        rels_str = " ".join(
             f"[blue]{t}[/blue]:{c}"
             for t, c in sorted(relation_types.items(), key=lambda x: -x[1])
         )
-        console.print(f"   Types relations: {rels_str}")
+        lines.append(f"[bold]Types R:[/bold]   {rels_str}")
 
-    # Sujets et résumé
+    # Sujets
     topics = result.get("key_topics", [])
     if topics:
-        console.print(f"   Sujets: [dim]{', '.join(topics[:5])}[/dim]")
+        lines.append(f"[bold]Sujets:[/bold]    [dim]{', '.join(topics[:6])}[/dim]")
 
+    # Résumé
     summary = result.get("summary", "")
     if summary:
-        console.print(f"   Résumé: [dim]{summary[:120]}…[/dim]")
+        lines.append(f"[bold]Résumé:[/bold]    [dim]{summary[:150]}{'…' if len(summary) > 150 else ''}[/dim]")
+
+    console.print(Panel.fit(
+        "\n".join(lines),
+        title=f"✅ Document ingéré{timing_str}",
+        border_style="green",
+    ))
 
 
 # =============================================================================

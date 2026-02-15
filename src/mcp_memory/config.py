@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     llmaas_max_tokens: int = 60000  # gpt-oss:120b fait du chain-of-thought qui consomme beaucoup de tokens
     llmaas_temperature: float = 1.0  # gpt-oss:120b fonctionne mieux à température 1.0
     extraction_max_text_length: int = 950000  # Max chars du texte envoyé au LLM (défaut ~950K)
-    extraction_chunk_size: int = 200000  # Max chars par chunk d'extraction graph (~60K tokens)
+    extraction_chunk_size: int = 25000  # Max chars par chunk d'extraction graph (~6K tokens, laisse marge pour prompt+réponse)
     
     # =========================================================================
     # Embedding (LLMaaS)

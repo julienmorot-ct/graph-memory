@@ -268,6 +268,8 @@ Accessible à : **http://localhost:8002/graph**
   - Rendu Markdown complet (tableaux, listes, code)
   - Entités cliquables → focus sur le nœud dans le graphe
 - **Mode Focus** (🔬) : isole le sous-graphe lié aux entités de la réponse
+  - Sortie automatique du mode Focus lors d'une nouvelle question (pas de filtrage résiduel)
+- **Toggle MENTIONS** (📄) : masque/affiche les nœuds Document et les liens MENTIONS pour ne voir que les relations sémantiques
 - **Modale paramètres** (⚙️) : ajustez la physique du graphe (distance, répulsion, taille)
 - **Recherche locale** : filtrez les entités par texte dans la sidebar
 - **Bouton Fit** (🔍) : recentre la vue sur tout le graphe
@@ -686,6 +688,30 @@ docker compose build mcp-memory && docker compose up -d mcp-memory
 
 ## 📋 Changelog
 
+### v0.6.2 — 15 février 2026
+
+**Interface web graphe améliorée + Progression CLI**
+
+- ✨ **Toggle MENTIONS** (📄) — Nouveau bouton toggle dans le header du client web pour masquer/afficher les nœuds Document et les arêtes MENTIONS. Permet de visualiser uniquement les relations sémantiques entre entités, sans le "bruit" des liens document ↔ entité. Contrôlé par `displayOptions.showMentions` dans `config.js`.
+- ✨ **Exit isolation automatique avant ASK** — Quand l'utilisateur pose une nouvelle question alors que le mode Focus est actif, le graphe repasse automatiquement en vue globale avant d'afficher les résultats. Plus de filtrage résiduel entre deux questions.
+- ✨ **Progression CLI avec barres %** — L'ingestion en ligne de commande affiche maintenant des barres de progression ASCII pour l'extraction LLM (chunk par chunk) et l'embedding (batch par batch), avec compteur d'entités/relations en temps réel.
+
+**Fichiers modifiés :** `config.js`, `graph.html`, `app.js`, `ask.js`, `commands.py`
+
+### v0.6.1 — 15 février 2026
+
+**Stabilisation ingestion gros documents + Observabilité**
+
+- 🐛 **Fix boucle infinie chunker** (`chunker.py`) — `_split_group_with_overlap()` pouvait boucler infiniment quand overlap + prochaine phrase dépassait `chunk_size` → `i` n'avançait jamais → millions de chunks → 7.47GB RAM → OOM Kill (exit 137). Corrigé en vidant l'overlap si nécessaire.
+- 🐛 **Fix healthcheck Docker OOM** (`Dockerfile`) — Remplacé `python -c "import httpx; ..."` par `curl -sf http://localhost:8002/sse --max-time 5`. Économise ~50MB RAM par check (plus de fork Python complet toutes les 30s).
+- 🔧 **`EXTRACTION_CHUNK_SIZE` réduit** (`config.py`) — 200K → **25K chars** (~6K tokens par chunk). Avec gpt-oss:120b (120K tokens context), 25K chars laisse de la marge pour prompt + réponse. Un document de 135K chars → 7 chunks au lieu de 1.
+- ✨ **Libération mémoire proactive** (`server.py`) — `del content_base64` après décodage, `del content` + `gc.collect()` après extraction texte. Monitoring RSS dans chaque log `[RSS=XXmb]`.
+- ✨ **Logs chunker détaillés** (`chunker.py`) — 3 passes avec détail section par section (titre, chars, level). `sys.stderr.flush()` systématique.
+- ✨ **Progression CLI temps réel** (`client.py` + `commands.py`) — Notifications MCP `ctx.info()` capturées côté client via monkey-patch `_received_notification`. Rich Live display avec étapes + timer `⏱ mm:ss`.
+- ✨ **Déduplication vérifiée** — Deux niveaux : extracteur (`_merge_extraction_results` : par nom+type) + Neo4j (`MERGE` Cypher sur `{name, memory_id}`).
+
+**Fichiers modifiés :** `chunker.py`, `Dockerfile`, `config.py`, `server.py`, `client.py`, `commands.py`
+
 ### v0.6.0 — 13 février 2026
 
 **Chunked Graph Extraction + Métadonnées enrichies**
@@ -766,4 +792,4 @@ Développé par **[Cloud Temple](https://www.cloud-temple.com)**.
 
 ---
 
-*Graph Memory v0.6.0 — Février 2026*
+*Graph Memory v0.6.2 — Février 2026*

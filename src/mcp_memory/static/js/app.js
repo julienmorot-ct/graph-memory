@@ -212,10 +212,11 @@ function setupHeaderControls() {
         }
     });
 
-    // Toggles d'affichage (labels arêtes, ombres, courbes)
+    // Toggles d'affichage (labels arêtes, ombres, courbes, mentions)
     setupDisplayToggle('toggleEdgeLabels', 'showEdgeLabels');
     setupDisplayToggle('toggleShadows', 'showShadows');
     setupDisplayToggle('toggleSmooth', 'showSmooth');
+    setupDisplayToggle('toggleMentions', 'showMentions');
 }
 
 /** Connecte un bouton toggle à une option d'affichage et re-rend le graphe */

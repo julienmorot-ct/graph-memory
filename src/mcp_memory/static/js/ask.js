@@ -27,6 +27,12 @@ async function submitQuestion() {
     const question = input.value.trim();
     if (!question || !appState.currentMemory) return;
 
+    // Sortir du mode Focus si actif, pour que la réponse s'affiche
+    // sur le graphe complet (pas filtré par l'isolation précédente)
+    if (filterState.isolatedNodes !== null) {
+        exitIsolation();
+    }
+
     const body = document.getElementById('askBody');
     const btn = document.getElementById('askSubmitBtn');
 
