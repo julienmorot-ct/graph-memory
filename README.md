@@ -8,6 +8,7 @@ Développé par **[Cloud Temple](https://www.cloud-temple.com)**.
 
 ## 📋 Table des matières
 
+- [Changelog](#-changelog)
 - [Concept](#-concept)
 - [Fonctionnalités](#-fonctionnalités)
 - [Architecture](#-architecture)
@@ -24,8 +25,33 @@ Développé par **[Cloud Temple](https://www.cloud-temple.com)**.
 - [Sécurité](#-sécurité)
 - [Structure du projet](#-structure-du-projet)
 - [Dépannage](#-dépannage)
-- [Changelog](#-changelog)
 - [Licence](#-licence)
+
+---
+
+## 📋 Changelog
+
+> Historique complet : voir [CHANGELOG.md](CHANGELOG.md)
+
+### v0.6.5 — 16 février 2026 — Tool memory_query + Option --json CLI
+- ✨ **Tool MCP `memory_query`** — Interrogation structurée sans LLM (données brutes pour agents IA)
+- ✨ **Commande CLI `query`** — Shell interactif + mode Click
+- ✨ **Option `--json` globale** — Sur 10 commandes de consultation, JSON brut sans formatage Rich
+- 🐛 Fix erreur TaskGroup → rebuild Docker après ajout de tools
+
+### v0.6.4 — 16 février 2026 — Panneau ASK amélioré
+- ✨ Panneau ASK redimensionnable + Export HTML + Fix toggle Documents
+
+### v0.6.3 — 15 février 2026 — Recherche accent-insensitive + Calibrage RAG
+- ✨ Index fulltext Neo4j `standard-folding` (ASCII folding)
+- 🔧 `RAG_SCORE_THRESHOLD` 0.65 → 0.58
+
+### v0.6.2 — 15 février 2026 — Interface web + Progression CLI
+### v0.6.1 — 15 février 2026 — Stabilisation ingestion gros documents
+### v0.6.0 — 13 février 2026 — Chunked Graph Extraction + Métadonnées
+### v0.5.2 — 9 février 2026 — Q&A Fallback RAG-only + Tokeniser robuste
+### v0.5.1 — 9 février 2026 — Tokens email + hash complet
+### v0.5.0 — Février 2026 — Version initiale publique
 
 ---
 
@@ -137,7 +163,7 @@ Question en langage naturel
 │  │  • AuthMiddleware (Bearer Token)                               │  │
 │  └────────────────────────────────────────────────────────────────┘  │
 │  ┌────────────────────────────────────────────────────────────────┐  │
-│  │  MCP Tools (14 outils)                                         │  │
+│  │  MCP Tools (21 outils)                                         │  │
 │  │  • memory_create/delete/list/stats                             │  │
 │  │  • memory_ingest/search/get_context                            │  │
 │  │  • question_answer                                             │  │
@@ -340,6 +366,7 @@ mcp> exit                          # Quitter
 | Ingérer document   | `document ingest ID PATH`       | `ingest PATH`       |
 | Supprimer document | `document delete ID DOC`        | `deldoc DOC`        |
 | Question/Réponse   | `ask ID "question"`             | `ask question`      |
+| Query structuré    | `query ID "question"`           | `query question`    |
 | Vérif. stockage S3 | `storage check [ID]`            | `check [ID]`        |
 | Nettoyage S3       | `storage cleanup [-f]`          | `cleanup [--force]` |
 | Ontologies dispo.  | `ontologies`                    | `ontologies`        |
@@ -348,7 +375,7 @@ mcp> exit                          # Quitter
 
 ## 🔧 Outils MCP
 
-14 outils exposés via le protocole MCP (HTTP/SSE) :
+21 outils exposés via le protocole MCP (HTTP/SSE) :
 
 ### Gestion des mémoires
 
@@ -358,21 +385,31 @@ mcp> exit                          # Quitter
 | `memory_delete` | `memory_id`                                    | Supprime une mémoire (cascade: docs + entités + S3) |
 | `memory_list`   | —                                              | Liste toutes les mémoires                           |
 | `memory_stats`  | `memory_id`                                    | Statistiques (docs, entités, relations, types)      |
+| `memory_graph`  | `memory_id`                                    | Graphe complet (nœuds, arêtes, documents)           |
 
-### Documents et extraction
+### Documents
 
 | Outil             | Paramètres                                         | Description                                       |
 | ----------------- | -------------------------------------------------- | ------------------------------------------------- |
 | `memory_ingest`   | `memory_id`, `content_base64`, `filename`, `force` | Ingère un document (S3 + extraction LLM + graphe) |
+| `document_list`   | `memory_id`                                        | Liste les documents d'une mémoire                 |
+| `document_get`    | `memory_id`, `filename`, `include_content`         | Métadonnées d'un document (+ contenu optionnel)   |
 | `document_delete` | `memory_id`, `filename`                            | Supprime un document et ses entités orphelines    |
 
 ### Recherche et Q&A
 
-| Outil                | Paramètres                       | Description                                        |
-| -------------------- | -------------------------------- | -------------------------------------------------- |
-| `memory_search`      | `memory_id`, `query`, `limit`    | Recherche d'entités dans le graphe                 |
-| `memory_get_context` | `memory_id`, `entity_name`       | Contexte complet d'une entité (voisins + docs)     |
-| `question_answer`    | `memory_id`, `question`, `limit` | Question en langage naturel → réponse avec sources |
+| Outil                | Paramètres                       | Description                                           |
+| -------------------- | -------------------------------- | ----------------------------------------------------- |
+| `memory_search`      | `memory_id`, `query`, `limit`    | Recherche d'entités dans le graphe                    |
+| `memory_get_context` | `memory_id`, `entity_name`       | Contexte complet d'une entité (voisins + docs)        |
+| `question_answer`    | `memory_id`, `question`, `limit` | Question en langage naturel → réponse LLM avec sources |
+| `memory_query`       | `memory_id`, `query`, `limit`    | Données structurées sans LLM (entités, chunks RAG, scores) |
+
+### Ontologies
+
+| Outil           | Paramètres | Description                   |
+| --------------- | ---------- | ----------------------------- |
+| `ontology_list` | —          | Liste les ontologies disponibles |
 
 ### Stockage S3
 
@@ -383,12 +420,13 @@ mcp> exit                          # Quitter
 
 ### Administration
 
-| Outil                | Paramètres                   | Description                                 |
-| -------------------- | ---------------------------- | ------------------------------------------- |
-| `admin_create_token` | `client_name`, `permissions` | Crée un token d'accès                       |
-| `admin_list_tokens`  | —                            | Liste les tokens actifs                     |
-| `admin_revoke_token` | `token_hash`                 | Révoque un token                            |
-| `system_health`      | —                            | État de santé des services (Neo4j, S3, LLM) |
+| Outil                 | Paramètres                            | Description                                   |
+| --------------------- | ------------------------------------- | --------------------------------------------- |
+| `admin_create_token`  | `client_name`, `permissions`, `email` | Crée un token d'accès                         |
+| `admin_list_tokens`   | —                                     | Liste les tokens actifs                       |
+| `admin_revoke_token`  | `token_hash`                          | Révoque un token                              |
+| `admin_update_token`  | `token_hash`, `memory_ids`, `action`  | Modifie les mémoires d'un token (add/remove/set) |
+| `system_health`       | —                                     | État de santé des services (Neo4j, S3, LLM, Qdrant, Embedding) |
 
 ---
 
@@ -445,20 +483,32 @@ instructions: |
 
 ## 🌍 API REST
 
-En plus du protocole MCP (SSE), le service expose une API REST simple accessible sans authentification :
+En plus du protocole MCP (SSE), le service expose une API REST. **Tous les endpoints `/api/*` requièrent un Bearer Token** (même header `Authorization` que pour MCP). Seuls `/health` et les fichiers statiques (`/graph`, `/static/`) sont publics.
 
-| Méthode | Endpoint                 | Description                         |
-| ------- | ------------------------ | ----------------------------------- |
-| `GET`   | `/health`                | État de santé du serveur            |
-| `GET`   | `/graph`                 | Interface web de visualisation      |
-| `GET`   | `/api/memories`          | Liste des mémoires (JSON)           |
-| `GET`   | `/api/graph/{memory_id}` | Graphe complet d'une mémoire (JSON) |
-| `POST`  | `/api/ask`               | Question/Réponse (JSON)             |
+### Endpoints publics (pas d'authentification)
+
+| Méthode | Endpoint     | Description                    |
+| ------- | ------------ | ------------------------------ |
+| `GET`   | `/health`    | État de santé du serveur       |
+| `GET`   | `/graph`     | Interface web de visualisation |
+| `GET`   | `/static/*`  | Fichiers statiques (CSS, JS)   |
+
+### Endpoints authentifiés (Bearer Token obligatoire)
+
+| Méthode | Endpoint                 | Description                                            |
+| ------- | ------------------------ | ------------------------------------------------------ |
+| `GET`   | `/api/memories`          | Liste des mémoires (JSON)                              |
+| `GET`   | `/api/graph/{memory_id}` | Graphe complet d'une mémoire (JSON)                    |
+| `POST`  | `/api/ask`               | Question/Réponse via LLM (JSON)                        |
+| `POST`  | `/api/query`             | Interrogation structurée sans LLM — données brutes (JSON) |
+
+> **Note** : Le client web (`/graph`) stocke le token Bearer en `localStorage` et l'injecte automatiquement dans chaque appel `/api/*`. En cas de 401, un écran de login s'affiche.
 
 ### Exemple : Question/Réponse via API REST
 
 ```bash
 curl -X POST http://localhost:8002/api/ask \
+  -H "Authorization: Bearer VOTRE_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "memory_id": "JURIDIQUE",
@@ -478,6 +528,19 @@ Réponse :
     {"filename": "CGV.docx", "uri": "s3://..."}
   ]
 }
+```
+
+### Exemple : Query structuré (sans LLM)
+
+```bash
+curl -X POST http://localhost:8002/api/query \
+  -H "Authorization: Bearer VOTRE_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "memory_id": "JURIDIQUE",
+    "query": "réversibilité des données",
+    "limit": 10
+  }'
 ```
 
 ---
@@ -549,8 +612,9 @@ async def exemple():
 ### Authentification
 
 - **Protocole MCP** (SSE) : Bearer Token obligatoire dans le header `Authorization`
-- **API REST** (`/api/*`, `/graph`, `/static/*`) : accès public (lecture seule)
-- **Requêtes internes** (localhost/127.0.0.1) : exemptées d'authentification
+- **API REST** (`/api/*`) : Bearer Token obligatoire (même token que MCP)
+- **Interface web** (`/graph`, `/static/*`) : accès public (le JS injecte le token depuis `localStorage`)
+- **Requêtes internes** (localhost/127.0.0.1) : exemptées d'authentification pour MCP/SSE uniquement (pas pour `/api/*`)
 - **Health check** (`/health`) : accès public
 
 ### Gestion des tokens
@@ -595,7 +659,7 @@ graph-memory/
 ├── scripts/                  # CLI et utilitaires
 │   ├── mcp_cli.py            # Point d'entrée CLI (Click + Shell)
 │   ├── README.md             # Documentation CLI
-│   ├── cleanup_and_reingest.py  # Utilitaire de ré-ingestion
+│   ├── test_rag_thresholds.py   # Benchmark seuils RAG
 │   ├── view_graph.py         # Visualisation graphe en terminal
 │   └── cli/                  # Package CLI
 │       ├── __init__.py
@@ -611,6 +675,7 @@ graph-memory/
     │
     ├── auth/                 # Authentification
     │   ├── __init__.py
+    │   ├── context.py        # ContextVar pour propager l'auth aux outils MCP
     │   ├── middleware.py     # Middlewares ASGI (Auth + Logging + Static + API REST)
     │   └── token_manager.py  # CRUD tokens dans Neo4j
     │
@@ -663,8 +728,8 @@ docker compose exec mcp-memory env | grep -E "S3_|LLMAAS_|NEO4J_"
 ### Erreur 401 Unauthorized
 
 - Vérifiez que votre token est valide
-- Les endpoints publics (`/health`, `/graph`, `/api/*`, `/static/*`) ne nécessitent pas de token
-- Les requêtes MCP via SSE (`/sse`) nécessitent un Bearer token
+- Les endpoints publics (`/health`, `/graph`, `/static/*`) ne nécessitent pas de token
+- **Tous les `/api/*`** et les requêtes MCP via SSE (`/sse`) nécessitent un Bearer Token
 
 ### Page web blanche
 
@@ -686,116 +751,6 @@ docker compose build mcp-memory && docker compose up -d mcp-memory
 
 ---
 
-## 📋 Changelog
-
-### v0.6.3 — 15 février 2026
-
-**Recherche accent-insensitive + Calibrage seuil RAG**
-
-- ✨ **Index fulltext Neo4j `standard-folding`** — Recherche accent-insensitive via un index Lucene avec ASCII folding. `"réversibilité"`, `"reversibilite"`, `"REVERSIBILITE"` matchent tous les 3. L'index se crée automatiquement au premier appel.
-- 🐛 **Recherche "réversibilité" → 0 résultats** — Python normalisait les accents mais `toLower()` de Neo4j les conservait. Corrigé par l'index fulltext (principal) + fallback CONTAINS avec double tokens raw+normalized.
-- 🐛 **RAG quasi inactif (seuil 0.65 trop élevé)** — BGE-M3 produit des scores cosinus ~0.55-0.63 pour les meilleurs chunks. Le seuil 0.65 éliminait 93% des chunks pertinents. Abaissé à **0.58** après benchmark comparatif sur 5 questions × 5 seuils (`scripts/test_rag_thresholds.py`).
-- 🔧 **`RAG_SCORE_THRESHOLD` 0.65 → 0.58** — Calibré pour BGE-M3 via benchmark (0.50/0.55/0.58/0.60/0.65).
-- ♻️ **`search_entities()` refactorisé** — Stratégie en 2 niveaux : fulltext Lucene (scoring par pertinence) → fallback CONTAINS (tokens raw + normalisés).
-
-**Fichiers modifiés :** `graph.py`, `config.py`, `.env.example`, `README.md`
-
-### v0.6.2 — 15 février 2026
-
-**Interface web graphe améliorée + Progression CLI**
-
-- ✨ **Toggle MENTIONS** (📄) — Nouveau bouton toggle dans le header du client web pour masquer/afficher les nœuds Document et les arêtes MENTIONS. Permet de visualiser uniquement les relations sémantiques entre entités, sans le "bruit" des liens document ↔ entité. Contrôlé par `displayOptions.showMentions` dans `config.js`.
-- ✨ **Exit isolation automatique avant ASK** — Quand l'utilisateur pose une nouvelle question alors que le mode Focus est actif, le graphe repasse automatiquement en vue globale avant d'afficher les résultats. Plus de filtrage résiduel entre deux questions.
-- ✨ **Progression CLI avec barres %** — L'ingestion en ligne de commande affiche maintenant des barres de progression ASCII pour l'extraction LLM (chunk par chunk) et l'embedding (batch par batch), avec compteur d'entités/relations en temps réel.
-
-**Fichiers modifiés :** `config.js`, `graph.html`, `app.js`, `ask.js`, `commands.py`
-
-### v0.6.1 — 15 février 2026
-
-**Stabilisation ingestion gros documents + Observabilité**
-
-- 🐛 **Fix boucle infinie chunker** (`chunker.py`) — `_split_group_with_overlap()` pouvait boucler infiniment quand overlap + prochaine phrase dépassait `chunk_size` → `i` n'avançait jamais → millions de chunks → 7.47GB RAM → OOM Kill (exit 137). Corrigé en vidant l'overlap si nécessaire.
-- 🐛 **Fix healthcheck Docker OOM** (`Dockerfile`) — Remplacé `python -c "import httpx; ..."` par `curl -sf http://localhost:8002/sse --max-time 5`. Économise ~50MB RAM par check (plus de fork Python complet toutes les 30s).
-- 🔧 **`EXTRACTION_CHUNK_SIZE` réduit** (`config.py`) — 200K → **25K chars** (~6K tokens par chunk). Avec gpt-oss:120b (120K tokens context), 25K chars laisse de la marge pour prompt + réponse. Un document de 135K chars → 7 chunks au lieu de 1.
-- ✨ **Libération mémoire proactive** (`server.py`) — `del content_base64` après décodage, `del content` + `gc.collect()` après extraction texte. Monitoring RSS dans chaque log `[RSS=XXmb]`.
-- ✨ **Logs chunker détaillés** (`chunker.py`) — 3 passes avec détail section par section (titre, chars, level). `sys.stderr.flush()` systématique.
-- ✨ **Progression CLI temps réel** (`client.py` + `commands.py`) — Notifications MCP `ctx.info()` capturées côté client via monkey-patch `_received_notification`. Rich Live display avec étapes + timer `⏱ mm:ss`.
-- ✨ **Déduplication vérifiée** — Deux niveaux : extracteur (`_merge_extraction_results` : par nom+type) + Neo4j (`MERGE` Cypher sur `{name, memory_id}`).
-
-**Fichiers modifiés :** `chunker.py`, `Dockerfile`, `config.py`, `server.py`, `client.py`, `commands.py`
-
-### v0.6.0 — 13 février 2026
-
-**Chunked Graph Extraction + Métadonnées enrichies**
-
-- ✨ **Extraction chunked séquentielle** (`extractor.py`) — Les documents longs (> `EXTRACTION_CHUNK_SIZE` = 200K chars) sont découpés en chunks extraits séquentiellement. Chaque chunk reçoit le contexte cumulatif des entités/relations déjà vues. Le LLM ne re-déclare pas les entités existantes et crée des relations cross-chunks. Fusion finale avec déduplication.
-- ✨ **Métadonnées enrichies sur les documents** — Le nœud Document Neo4j stocke maintenant `source_path`, `source_modified_at`, `size_bytes`, `text_length`, `content_type`. Permet de détecter si un fichier a été modifié entre deux ingestions.
-- ✨ **`document_get` optimisé** — Nouveau paramètre `include_content=False` (défaut). Par défaut, retourne uniquement les métadonnées (requête Neo4j rapide, pas de téléchargement S3). `include_content=True` pour récupérer le contenu.
-- ✨ **CLI enrichi** — `document ingest` (+ option `--source-path`), `document ingest-dir`, `cmd_ingest`, `cmd_ingestdir` passent automatiquement `source_path` et `source_modified_at` (mtime fichier) au serveur.
-- 🔧 **Timeout LLM** — `extraction_timeout_seconds` : 120s → **600s** (10 min, nécessaire pour gpt-oss:120b chain-of-thought sur des textes longs).
-- 🔧 **Nouveau paramètre** `EXTRACTION_CHUNK_SIZE` (défaut 200K chars, configurable via `.env`).
-- 🔧 **Résilience** — Si un chunk d'extraction timeout, l'ingestion continue avec les chunks suivants.
-- 📝 **Documentation** — `DESIGN/chunking_methodology.md` : méthodologie complète des deux niveaux de chunking (graph extraction vs RAG sémantique).
-
-**Fichiers modifiés :** `extractor.py`, `ontology.py`, `graph.py`, `server.py`, `config.py`, `commands.py`, `shell.py`, `.env.example`
-
-### v0.5.2 — 9 février 2026
-
-**Q&A — Fallback RAG-only + Tokeniser robuste + Logs décisionnels**
-
-- 🐛 **Fix tokeniser de recherche** (`graph.py`) — La ponctuation (`?`, `!`, `.`) n'était pas retirée des tokens → `"résiliation?"` ne matchait jamais dans Neo4j. Corrigé avec `re.findall(r'[a-zA-ZÀ-ÿ]+', ...)` pour extraire uniquement les mots alphabétiques.
-- 🐛 **Fix normalisation des accents** — Les tokens sont maintenant normalisés via `unicodedata.normalize('NFKD', ...)` pour que `"résiliation"` matche `"RESILIATION"` dans le graphe.
-- ✨ **Fallback RAG-only** (`server.py`) — Quand le graphe ne trouve aucune entité pertinente, le système lance désormais une **recherche vectorielle Qdrant sur tous les chunks** de la mémoire (sans filtrage par doc_ids). Auparavant, l'absence d'entités retournait immédiatement "pas d'informations pertinentes" sans interroger Qdrant.
-  - **Graph-Guided** : entités trouvées → RAG filtré par les doc_ids du graphe (précis)
-  - **RAG-only** : 0 entités → RAG sur tous les documents de la mémoire (exhaustif)
-  - "Pas d'informations" seulement si **ni le graphe ni le RAG** ne trouvent quoi que ce soit
-- ✨ **Logs décisionnels Q&A** — Chaque question génère désormais une trace complète dans les logs Docker :
-  - `🔤 [Search] Tokenisation` : mots bruts → tokens filtrés (stop words, accents)
-  - `📊 [Q&A] Graphe` : nombre d'entités trouvées + noms, ou "fallback RAG-only"
-  - `🔍 [Q&A] RAG` : mode (graph-guided/rag-only) + nombre de chunks + doc_ids filtrants
-  - `📝 [Q&A] Contexte LLM` : taille graphe (chars) + taille RAG (chars) + nombre de docs
-- 🔧 **Qdrant épinglé v1.16.2** (`docker-compose.yml`) — Image Docker épinglée à `qdrant/qdrant:v1.16.2` au lieu de `latest` pour correspondre au client Python et éviter les warnings d'incompatibilité.
-- ✨ **Seuil de pertinence RAG** (`RAG_SCORE_THRESHOLD=0.65`) — Les chunks dont le score cosinus est inférieur au seuil configurable sont éliminés. Empêche d'envoyer du contexte non pertinent au LLM. Ajustable via `.env` (baisser à 0.5 pour être plus permissif).
-- ✨ **Limite de chunks configurable** (`RAG_CHUNK_LIMIT=8`) — Nombre max de chunks retournés par Qdrant, configurable via `.env`.
-- ✨ **Scores de similarité dans les logs** — Chaque chunk retenu affiche son score cosinus dans les logs Docker :
-  ```
-  📎 [1] score=0.7153 ✅ | RÉSILIATION SANS FAUTE | "texte..."
-  📎 [2] score=0.6539 ✅ | IMPRÉVISION | "texte..."
-  ```
-- ✨ **Stop words enrichis** — Ajout de `quel`, `quelle`, `quels`, `quelles`, `contient`, `corpus` pour des tokens plus pertinents.
-- 🏗️ **Nouveaux modules RAG** — `chunker.py` (SemanticChunker), `embedder.py` (EmbeddingService), `vector_store.py` (VectorStoreService Qdrant).
-
-**Fichiers modifiés :** `graph.py`, `server.py`, `config.py`, `docker-compose.yml`, `.env.example`, `chunker.py`, `embedder.py`, `vector_store.py`, `models.py`, `requirements.txt`
-
-### v0.5.1 — 9 février 2026
-
-**Tokens — Champ email + Hash complet**
-
-- ✨ Ajout du champ **email** (optionnel) lors de la création d'un token (`--email user@example.com`)
-- ✨ Affichage du **hash complet** (SHA256, 64 caractères) dans `token list` — directement copiable pour `token revoke`, `token grant`, etc.
-- ✨ Colonne **Email** dans la table `token list` (CLI Click + Shell)
-- ✨ Email affiché dans le panel de création de token
-- 🏗️ Création du fichier `VERSION` (0.5.1)
-- 📝 Mise à jour du `scripts/README.md` avec documentation complète de la CLI
-
-**Fichiers modifiés :** `models.py`, `token_manager.py`, `server.py`, `display.py`, `commands.py`, `shell.py`
-
-### v0.5.0 — Février 2026
-
-- 🎉 Version initiale publique
-- Extraction d'entités/relations guidée par ontologie (LLM)
-- Graphe de connaissances Neo4j avec isolation par namespace (multi-tenant)
-- Stockage S3 (Dell ECS, AWS, MinIO)
-- Interface web interactive (vis-network) avec filtrage avancé et panneau ASK
-- CLI complète (Click + Shell interactif avec prompt_toolkit)
-- Authentification Bearer Token avec gestion des tokens (create, revoke, grant, update)
-- Vérification et nettoyage cohérence S3/graphe
-- Question/Réponse avec citation des documents sources
-- 14 outils MCP exposés via HTTP/SSE
-- Support des formats : PDF, DOCX, Markdown, TXT, HTML, CSV
-
----
-
 ## 📄 Licence
 
 Ce projet est distribué sous licence **Apache 2.0**. Voir le fichier [LICENSE](LICENSE) pour plus de détails.
@@ -804,4 +759,4 @@ Développé par **[Cloud Temple](https://www.cloud-temple.com)**.
 
 ---
 
-*Graph Memory v0.6.3 — Février 2026*
+*Graph Memory v0.6.5 — Février 2026*

@@ -7,6 +7,24 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [0.6.5] — 2026-02-16
+
+### Tool memory_query + Option --json CLI
+
+#### Ajouté
+- **Tool MCP `memory_query`** (`server.py`) — Interrogation structurée sans LLM. Même pipeline que `question_answer` (graphe fulltext + RAG vectoriel) mais retourne les données brutes : entités enrichies (relations, voisins, documents sources), chunks RAG avec scores, statistiques. Idéal pour les agents IA qui construisent leur propre réponse.
+- **Commande CLI `query`** (`shell.py`, `commands.py`) — Nouvelle commande dans le shell interactif et en mode Click. Affichage formaté Rich avec entités, chunks RAG triés par score, et documents sources.
+- **Affichage `show_query_result()`** (`display.py`) — Rendu Rich dédié pour les résultats de `memory_query` : panel par entité (relations, voisins), table RAG chunks, panel documents sources.
+- **Option `--json` globale** (`shell.py`) — Utilisable sur toute commande de consultation (`list`, `info`, `graph`, `docs`, `entities`, `entity`, `relations`, `ask`, `query`). Affiche le JSON brut du serveur sans formatage Rich. Détection automatique n'importe où dans la ligne (`query --json ma question` ou `--json list`). Idéal pour scripting et pipe vers `jq`.
+
+#### Corrigé
+- **Erreur TaskGroup sur `query`** — Le serveur Docker n'avait pas le nouveau code (`memory_query` non enregistré). Rebuild Docker nécessaire après ajout de nouveaux tools MCP.
+
+#### Fichiers modifiés
+`server.py`, `shell.py`, `display.py`, `commands.py`
+
+---
+
 ## [0.6.4] — 2026-02-16
 
 ### Panneau ASK amélioré + Fix toggle Documents

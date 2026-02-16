@@ -269,6 +269,12 @@ class StaticFilesMiddleware:
             await self._api_ask(send, body)
             return
         
+        # API REST - Query structuré (POST) — données brutes sans LLM
+        if path == "/api/query" and method == "POST":
+            body = await self._read_body(receive)
+            await self._api_query(send, body)
+            return
+        
         # Passer au handler suivant
         await self.app(scope, receive, send)
     
@@ -396,6 +402,47 @@ class StaticFilesMiddleware:
             }, 400)
         except Exception as e:
             print(f"❌ [ASK] Erreur: {e}", file=sys.stderr)
+            await self._send_json(send, {
+                "status": "error",
+                "message": str(e)
+            }, 500)
+    
+    async def _api_query(self, send, body: bytes):
+        """
+        Interroge une mémoire et retourne les données structurées (sans LLM).
+        
+        Délègue à memory_query() de server.py (source unique de logique).
+        Body JSON: {memory_id, query, limit?}
+        Retourne: {status, entities, rag_chunks, source_documents, stats}
+        """
+        import json
+        try:
+            payload = json.loads(body.decode('utf-8'))
+            memory_id = payload.get("memory_id")
+            query = payload.get("query")
+            limit = payload.get("limit", 10)
+            
+            if not memory_id or not query:
+                await self._send_json(send, {
+                    "status": "error",
+                    "message": "memory_id et query sont requis"
+                }, 400)
+                return
+            
+            print(f"📊 [Query] {memory_id}: {query}", file=sys.stderr)
+            
+            from ..server import memory_query
+            result = await memory_query(memory_id, query, limit)
+            
+            await self._send_json(send, result)
+            
+        except json.JSONDecodeError:
+            await self._send_json(send, {
+                "status": "error",
+                "message": "JSON invalide dans le body"
+            }, 400)
+        except Exception as e:
+            print(f"❌ [Query] Erreur: {e}", file=sys.stderr)
             await self._send_json(send, {
                 "status": "error",
                 "message": str(e)

@@ -72,3 +72,12 @@ async function apiAsk(memoryId, question, limit = 10) {
     });
     return await response.json();
 }
+
+async function apiQuery(memoryId, query, limit = 10) {
+    const response = await authFetch('/api/query', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ memory_id: memoryId, query, limit })
+    });
+    return await response.json();
+}

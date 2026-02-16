@@ -51,7 +51,7 @@ from .client import MCPClient
 from .display import (
     show_memories_table, show_documents_table, show_graph_summary,
     show_ingest_result, show_error, show_success, show_warning,
-    show_answer, show_entity_context, show_storage_check,
+    show_answer, show_query_result, show_entity_context, show_storage_check,
     show_cleanup_result, show_tokens_table, show_token_created,
     show_token_updated, console
 )
@@ -64,11 +64,12 @@ from .display import (
 # Liste des commandes du shell
 SHELL_COMMANDS = [
     "help", "health", "list", "use", "info", "graph", "docs",
-    "entities", "entity", "relations", "ask", "check", "cleanup",
+    "entities", "entity", "relations", "ask", "query", "check", "cleanup",
     "create", "ingest", "ingestdir", "deldoc", "ontologies",
     "tokens", "token-create", "token-revoke", "token-grant",
     "token-ungrant", "token-set",
     "limit", "delete", "debug", "clear", "exit", "quit",
+    "--json",
 ]
 
 
@@ -151,9 +152,17 @@ def _resolve_memory_id(candidate: str, known_ids: list) -> str:
 # Handlers de commandes
 # =============================================================================
 
-async def cmd_list(client: MCPClient, state: dict):
+def _json_dump(data: dict):
+    """Affiche un dict en JSON brut sur stdout (sans Rich)."""
+    print(json.dumps(data, indent=2, ensure_ascii=False))
+
+
+async def cmd_list(client: MCPClient, state: dict, json_output: bool = False):
     """Liste les mémoires."""
     result = await client.list_memories()
+    if json_output:
+        _json_dump(result)
+        return
     if result.get("status") == "ok":
         show_memories_table(result.get("memories", []), state.get("memory"))
     else:
@@ -187,7 +196,7 @@ async def cmd_use(client: MCPClient, state: dict, args: str):
         console.print(f"[dim]Disponibles: {', '.join(known_ids)}[/dim]")
 
 
-async def cmd_info(client: MCPClient, state: dict):
+async def cmd_info(client: MCPClient, state: dict, json_output: bool = False):
     """Affiche les infos de la mémoire courante."""
     mem = state.get("memory")
     if not mem:
@@ -195,6 +204,9 @@ async def cmd_info(client: MCPClient, state: dict):
         return
 
     result = await client.get_graph(mem)
+    if json_output:
+        _json_dump(result)
+        return
     if result.get("status") == "ok":
         console.print(f"[bold]Mémoire:[/bold] [cyan]{mem}[/cyan]")
         console.print(f"  Entités:   [green]{result.get('node_count', 0)}[/green]")
@@ -204,7 +216,7 @@ async def cmd_info(client: MCPClient, state: dict):
         show_error(result.get("message", "Erreur"))
 
 
-async def cmd_graph(client: MCPClient, state: dict, args: str):
+async def cmd_graph(client: MCPClient, state: dict, args: str, json_output: bool = False):
     """Affiche le graphe complet de la mémoire."""
     mem = args or state.get("memory")
     if not mem:
@@ -212,13 +224,16 @@ async def cmd_graph(client: MCPClient, state: dict, args: str):
         return
 
     result = await client.get_graph(mem)
+    if json_output:
+        _json_dump(result)
+        return
     if result.get("status") == "ok":
         show_graph_summary(result, mem)
     else:
         show_error(result.get("message", "Erreur"))
 
 
-async def cmd_docs(client: MCPClient, state: dict):
+async def cmd_docs(client: MCPClient, state: dict, json_output: bool = False):
     """Liste les documents de la mémoire courante."""
     mem = state.get("memory")
     if not mem:
@@ -226,13 +241,16 @@ async def cmd_docs(client: MCPClient, state: dict):
         return
 
     result = await client.get_graph(mem)
+    if json_output:
+        _json_dump({"status": "ok", "documents": result.get("documents", [])})
+        return
     if result.get("status") == "ok":
         show_documents_table(result.get("documents", []), mem)
     else:
         show_error(result.get("message", "Erreur"))
 
 
-async def cmd_entities(client: MCPClient, state: dict):
+async def cmd_entities(client: MCPClient, state: dict, json_output: bool = False):
     """Affiche les entités par type avec leurs documents sources."""
     mem = state.get("memory")
     if not mem:
@@ -240,6 +258,9 @@ async def cmd_entities(client: MCPClient, state: dict):
         return
 
     result = await client.get_graph(mem)
+    if json_output:
+        _json_dump(result)
+        return
     if result.get("status") != "ok":
         show_error(result.get("message", "Erreur"))
         return
@@ -299,7 +320,7 @@ async def cmd_entities(client: MCPClient, state: dict):
         console.print(table)
 
 
-async def cmd_entity(client: MCPClient, state: dict, args: str):
+async def cmd_entity(client: MCPClient, state: dict, args: str, json_output: bool = False):
     """Affiche le contexte d'une entité."""
     mem = state.get("memory")
     if not mem:
@@ -312,13 +333,16 @@ async def cmd_entity(client: MCPClient, state: dict, args: str):
     result = await client.call_tool("memory_get_context", {
         "memory_id": mem, "entity_name": args, "depth": 1
     })
+    if json_output:
+        _json_dump(result)
+        return
     if result.get("status") == "ok":
         show_entity_context(result)
     else:
         show_error(result.get("message", "Entité non trouvée"))
 
 
-async def cmd_relations(client: MCPClient, state: dict, args: str = ""):
+async def cmd_relations(client: MCPClient, state: dict, args: str = "", json_output: bool = False):
     """
     Affiche les relations. Sans argument : résumé par type.
     Avec un type en argument : détail de toutes les relations de ce type.
@@ -334,6 +358,9 @@ async def cmd_relations(client: MCPClient, state: dict, args: str = ""):
         return
 
     result = await client.get_graph(mem)
+    if json_output:
+        _json_dump(result)
+        return
     if result.get("status") != "ok":
         show_error(result.get("message", "Erreur"))
         return
@@ -391,7 +418,7 @@ async def cmd_relations(client: MCPClient, state: dict, args: str = ""):
         console.print("[dim]Deepdive: relations <TYPE> (ex: relations HAS_DURATION)[/dim]")
 
 
-async def cmd_ask(client: MCPClient, state: dict, args: str, debug: bool):
+async def cmd_ask(client: MCPClient, state: dict, args: str, debug: bool, json_output: bool = False):
     """Pose une question sur la mémoire courante."""
     mem = state.get("memory")
     if not mem:
@@ -406,6 +433,10 @@ async def cmd_ask(client: MCPClient, state: dict, args: str, debug: bool):
         "memory_id": mem, "question": args, "limit": limit
     })
 
+    if json_output:
+        _json_dump(result)
+        return
+
     if debug:
         console.print(Syntax(json.dumps(result, indent=2, ensure_ascii=False), "json"))
 
@@ -415,6 +446,35 @@ async def cmd_ask(client: MCPClient, state: dict, args: str, debug: bool):
             result.get("entities", []),
             result.get("source_documents", []),
         )
+    else:
+        show_error(result.get("message", "Erreur"))
+
+
+async def cmd_query(client: MCPClient, state: dict, args: str, debug: bool, json_output: bool = False):
+    """Interroge la mémoire courante et retourne les données structurées (sans LLM)."""
+    mem = state.get("memory")
+    if not mem:
+        show_warning("Sélectionnez une mémoire avec 'use <id>'")
+        return
+    if not args:
+        show_warning("Usage: query <votre requête>")
+        return
+
+    limit = state.get("limit", 10)
+    result = await client.call_tool("memory_query", {
+        "memory_id": mem, "query": args, "limit": limit
+    })
+
+    if json_output:
+        _json_dump(result)
+        return
+
+    if debug:
+        from rich.syntax import Syntax
+        console.print(Syntax(json.dumps(result, indent=2, ensure_ascii=False), "json"))
+
+    if result.get("status") == "ok":
+        show_query_result(result)
     else:
         show_error(result.get("message", "Erreur"))
 
@@ -1073,7 +1133,8 @@ def run_shell(url: str, token: str):
         "entities":     "Entités par type (avec descriptions)",
         "entity <n>":   "Contexte d'une entité (relations, documents, voisins)",
         "relations":    "Relations par type (avec exemples)",
-        "ask <q>":      "Poser une question",
+        "ask <q>":      "Poser une question (réponse LLM)",
+        "query <q>":    "Données structurées (sans LLM)",
         # --- Stockage ---
         "check":        "Vérifier cohérence S3/graphe (docs accessibles, orphelins)",
         "cleanup":      "Lister les orphelins S3 (--force pour supprimer)",
@@ -1092,6 +1153,8 @@ def run_shell(url: str, token: str):
         "clear":        "Effacer l'écran",
         "help":         "Afficher cette aide",
         "exit":         "Quitter",
+        # --- Options globales ---
+        "<cmd> --json":  "JSON brut sans formatage (ex: query --json ma question)",
     }
 
     def show_help():
@@ -1112,9 +1175,18 @@ def run_shell(url: str, token: str):
             if not cmd.strip():
                 continue
 
-            parts = cmd.strip().split(maxsplit=1)
-            command = parts[0].lower()
+            # Détecter --json n'importe où dans la ligne
+            raw_line = cmd.strip()
+            json_output = "--json" in raw_line
+            if json_output:
+                raw_line = raw_line.replace("--json", "").strip()
+
+            parts = raw_line.split(maxsplit=1)
+            command = parts[0].lower() if parts else ""
             args = parts[1] if len(parts) > 1 else ""
+
+            if not command:
+                continue
 
             # Dispatch
             if command in ("exit", "quit", "q"):
@@ -1133,31 +1205,34 @@ def run_shell(url: str, token: str):
                 console.clear()
 
             elif command == "list":
-                asyncio.run(cmd_list(client, state))
+                asyncio.run(cmd_list(client, state, json_output=json_output))
 
             elif command == "use":
                 asyncio.run(cmd_use(client, state, args))
 
             elif command == "info":
-                asyncio.run(cmd_info(client, state))
+                asyncio.run(cmd_info(client, state, json_output=json_output))
 
             elif command == "graph":
-                asyncio.run(cmd_graph(client, state, args))
+                asyncio.run(cmd_graph(client, state, args, json_output=json_output))
 
             elif command == "docs":
-                asyncio.run(cmd_docs(client, state))
+                asyncio.run(cmd_docs(client, state, json_output=json_output))
 
             elif command == "entities":
-                asyncio.run(cmd_entities(client, state))
+                asyncio.run(cmd_entities(client, state, json_output=json_output))
 
             elif command == "entity":
-                asyncio.run(cmd_entity(client, state, args))
+                asyncio.run(cmd_entity(client, state, args, json_output=json_output))
 
             elif command == "relations":
-                asyncio.run(cmd_relations(client, state, args))
+                asyncio.run(cmd_relations(client, state, args, json_output=json_output))
 
             elif command == "ask":
-                asyncio.run(cmd_ask(client, state, args, state["debug"]))
+                asyncio.run(cmd_ask(client, state, args, state["debug"], json_output=json_output))
+
+            elif command == "query":
+                asyncio.run(cmd_query(client, state, args, state["debug"], json_output=json_output))
 
             elif command == "limit":
                 if args.strip():

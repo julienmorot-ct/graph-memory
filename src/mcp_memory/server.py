@@ -947,6 +947,163 @@ CONSIGNES :
 
 
 @mcp.tool()
+async def memory_query(
+    memory_id: str,
+    query: str,
+    limit: int = 10
+) -> dict:
+    """
+    Interroge une mémoire et retourne les données structurées SANS génération LLM.
+    
+    Effectue la même recherche que question_answer (graphe + RAG vectoriel)
+    mais retourne les données brutes structurées au lieu de crafter une réponse.
+    Idéal pour les agents IA qui veulent construire leur propre réponse.
+    
+    Pipeline :
+    1. Recherche d'entités dans le graphe (fulltext + CONTAINS)
+    2. Récupération du contexte de chaque entité (voisins, relations, documents)
+    3. Recherche RAG vectorielle (graph-guided ou rag-only)
+    4. Retour des données structurées (pas d'appel LLM)
+    
+    Args:
+        memory_id: ID de la mémoire
+        query: Requête en langage naturel
+        limit: Nombre max d'entités à rechercher (défaut: 10)
+        
+    Returns:
+        Données structurées : entités, relations, chunks RAG, documents sources, stats
+    """
+    try:
+        # Vérifier l'accès à la mémoire
+        access_err = check_memory_access(memory_id)
+        if access_err:
+            return access_err
+        
+        # 1. Rechercher les entités pertinentes dans le graphe
+        print(f"🔎 [Query] Recherche graphe: memory={memory_id}, query='{query}', limit={limit}", file=sys.stderr)
+        entities = await get_graph().search_entities(memory_id, search_query=query, limit=limit)
+        
+        if entities:
+            entity_summary = ", ".join(f"{e['name']} ({e.get('type','?')})" for e in entities)
+            print(f"📊 [Query] Graphe: {len(entities)} entités trouvées → {entity_summary}", file=sys.stderr)
+        else:
+            print(f"📊 [Query] Graphe: 0 entités trouvées → fallback RAG-only", file=sys.stderr)
+        
+        # 2. Récupérer le contexte de chaque entité + documents sources
+        enriched_entities = []
+        source_documents = {}  # doc_id -> {filename, id}
+        
+        for entity in entities:
+            ctx = await get_graph().get_entity_context(memory_id, entity["name"], depth=1)
+            
+            # Collecter les documents sources
+            entity_docs = []
+            for doc in ctx.documents:
+                if isinstance(doc, dict):
+                    doc_id = doc.get('id', '')
+                    doc_filename = doc.get('filename', doc_id)
+                    if doc_id:
+                        if doc_id not in source_documents:
+                            source_documents[doc_id] = {
+                                "id": doc_id,
+                                "filename": doc_filename,
+                            }
+                        entity_docs.append(doc_filename)
+            
+            # Construire l'entité enrichie
+            enriched_entity = {
+                "name": entity["name"],
+                "type": entity.get("type", "?"),
+                "description": entity.get("description", ""),
+                "source_documents": entity_docs,
+                "relations": [
+                    {
+                        "type": rel.get("type", "RELATED_TO"),
+                        "target": rel.get("target", rel.get("to", "?")),
+                        "description": rel.get("description", ""),
+                    }
+                    for rel in ctx.relations
+                ],
+                "related_entities": [
+                    {
+                        "name": r.get("name", r) if isinstance(r, dict) else str(r),
+                        "type": r.get("type", "?") if isinstance(r, dict) else "?",
+                    }
+                    for r in ctx.related_entities
+                ],
+            }
+            enriched_entities.append(enriched_entity)
+        
+        # 3. RAG vectoriel : Graph-Guided si entités, sinon RAG-only
+        rag_chunks = []
+        rag_mode = "graph-guided" if entities else "rag-only"
+        rag_chunks_filtered = 0
+        
+        try:
+            graph_doc_ids = list(source_documents.keys())
+            query_embedding = await get_embedder().embed_query(query)
+            
+            score_threshold = settings.rag_score_threshold
+            chunk_limit = settings.rag_chunk_limit
+            
+            chunk_results = await get_vector_store().search(
+                memory_id=memory_id,
+                query_embedding=query_embedding,
+                doc_ids=graph_doc_ids if graph_doc_ids else None,
+                limit=chunk_limit
+            )
+            
+            total_before = len(chunk_results)
+            retained = [cr for cr in chunk_results if cr.score >= score_threshold]
+            rag_chunks_filtered = total_before - len(retained)
+            
+            for cr in retained:
+                rag_chunks.append({
+                    "text": cr.chunk.text,
+                    "score": round(cr.score, 4),
+                    "doc_id": cr.chunk.doc_id or "",
+                    "filename": cr.chunk.filename or "?",
+                    "section_title": cr.chunk.section_title or "",
+                    "article_number": cr.chunk.article_number or "",
+                    "chunk_index": cr.chunk.index if hasattr(cr.chunk, 'index') else 0,
+                })
+                # Ajouter les docs trouvés par RAG
+                if cr.chunk.doc_id and cr.chunk.doc_id not in source_documents:
+                    source_documents[cr.chunk.doc_id] = {
+                        "id": cr.chunk.doc_id,
+                        "filename": cr.chunk.filename or "?",
+                    }
+            
+            print(f"🔍 [Query] RAG ({rag_mode}): {len(retained)} chunks retenus"
+                  f" (seuil={score_threshold}, {rag_chunks_filtered} filtrés sur {total_before})", 
+                  file=sys.stderr)
+        
+        except Exception as e:
+            print(f"⚠️ [Query] Erreur RAG vectoriel: {e}", file=sys.stderr)
+        
+        # 4. Retourner les données structurées (PAS d'appel LLM)
+        return {
+            "status": "ok",
+            "memory_id": memory_id,
+            "query": query,
+            "retrieval_mode": rag_mode,
+            "entities": enriched_entities,
+            "rag_chunks": rag_chunks,
+            "source_documents": list(source_documents.values()),
+            "stats": {
+                "entities_found": len(enriched_entities),
+                "rag_chunks_retained": len(rag_chunks),
+                "rag_chunks_filtered": rag_chunks_filtered,
+                "rag_score_threshold": settings.rag_score_threshold,
+                "rag_chunk_limit": settings.rag_chunk_limit,
+            },
+        }
+    
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+
+@mcp.tool()
 async def memory_get_context(
     memory_id: str,
     entity_name: str,
@@ -1713,7 +1870,7 @@ def main():
     print("=" * 70, file=sys.stderr)
     print("Outils disponibles:", file=sys.stderr)
     print("  - memory_create, memory_delete, memory_list, memory_stats", file=sys.stderr)
-    print("  - memory_ingest, memory_search, memory_get_context", file=sys.stderr)
+    print("  - memory_ingest, memory_search, memory_query, memory_get_context", file=sys.stderr)
     print("  - admin_create_token, admin_list_tokens, admin_revoke_token, admin_update_token", file=sys.stderr)
     print("  - storage_check, storage_cleanup, system_health", file=sys.stderr)
     print("=" * 70, file=sys.stderr)

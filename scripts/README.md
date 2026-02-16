@@ -22,10 +22,10 @@ docker compose up -d
 
 La CLI utilise les variables d'environnement du fichier `.env` à la racine :
 
-| Variable | Description |
-|----------|-------------|
-| `MCP_SERVER_URL` | URL du serveur (défaut: `http://localhost:8002`) |
-| `ADMIN_BOOTSTRAP_KEY` | Token d'authentification admin |
+| Variable              | Description                                      |
+| --------------------- | ------------------------------------------------ |
+| `MCP_SERVER_URL`      | URL du serveur (défaut: `http://localhost:8002`) |
+| `ADMIN_BOOTSTRAP_KEY` | Token d'authentification admin                   |
 
 Ou passez-les en options : `--url` et `--token`.
 
@@ -100,7 +100,7 @@ python scripts/mcp_cli.py document delete JURIDIQUE <document_id>
 ### Question/Réponse
 
 ```bash
-# Poser une question sur une mémoire
+# Poser une question sur une mémoire (réponse LLM)
 python scripts/mcp_cli.py ask JURIDIQUE "Quelles sont les conditions de résiliation ?"
 
 # Avec debug (affiche le JSON brut)
@@ -108,6 +108,10 @@ python scripts/mcp_cli.py ask JURIDIQUE "Quelles obligations ?" -d
 
 # Limiter le nombre d'entités recherchées
 python scripts/mcp_cli.py ask JURIDIQUE "Quelles garanties ?" -l 20
+
+# Interrogation structurée SANS LLM (données brutes pour agents IA)
+python scripts/mcp_cli.py query JURIDIQUE "réversibilité des données"
+python scripts/mcp_cli.py query JURIDIQUE "durée du contrat" -l 20
 ```
 
 ### Stockage S3
@@ -158,21 +162,21 @@ python scripts/mcp_cli.py token set-memories <hash>   # Accès à toutes
 
 **Options de `document ingest` :**
 
-| Option | Description | Exemple |
-|--------|-------------|---------|
-| `--source-path` | Chemin source personnalisé (sinon: chemin absolu du fichier) | `--source-path "legal/CGA.docx"` |
-| `-f` / `--force` | Forcer la ré-ingestion même si le hash existe | `-f` |
+| Option           | Description                                                  | Exemple                          |
+| ---------------- | ------------------------------------------------------------ | -------------------------------- |
+| `--source-path`  | Chemin source personnalisé (sinon: chemin absolu du fichier) | `--source-path "legal/CGA.docx"` |
+| `-f` / `--force` | Forcer la ré-ingestion même si le hash existe                | `-f`                             |
 
 > **Note v0.6.0** : `source_path` et `source_modified_at` (date de modification du fichier) sont passés automatiquement au serveur lors de l'ingestion. Cela permet au LLM de détecter si un fichier a changé sans télécharger le contenu.
 
 **Options de `token create` :**
 
-| Option | Description | Exemple |
-|--------|-------------|---------|
-| `--email` | Email du propriétaire | `--email user@cloud-temple.com` |
-| `-p` / `--permissions` | Permissions (virgules) | `-p read,write,admin` |
-| `-m` / `--memories` | Mémoires autorisées (virgules) | `-m JURIDIQUE,CLOUD` |
-| `-e` / `--expires` | Expiration en jours | `-e 90` |
+| Option                 | Description                    | Exemple                         |
+| ---------------------- | ------------------------------ | ------------------------------- |
+| `--email`              | Email du propriétaire          | `--email user@cloud-temple.com` |
+| `-p` / `--permissions` | Permissions (virgules)         | `-p read,write,admin`           |
+| `-m` / `--memories`    | Mémoires autorisées (virgules) | `-m JURIDIQUE,CLOUD`            |
+| `-e` / `--expires`     | Expiration en jours            | `-e 90`                         |
 
 ---
 
@@ -193,52 +197,53 @@ Fonctionnalités :
 
 #### Navigation
 
-| Commande | Description |
-|----------|-------------|
-| `health` | État du serveur |
-| `list` | Lister les mémoires |
-| `use <id>` | Sélectionner une mémoire |
-| `create <id> <onto>` | Créer une mémoire |
-| `info` | Résumé de la mémoire courante |
-| `graph` | Graphe complet |
-| `delete [id]` | Supprimer une mémoire |
+| Commande             | Description                   |
+| -------------------- | ----------------------------- |
+| `health`             | État du serveur               |
+| `list`               | Lister les mémoires           |
+| `use <id>`           | Sélectionner une mémoire      |
+| `create <id> <onto>` | Créer une mémoire             |
+| `info`               | Résumé de la mémoire courante |
+| `graph`              | Graphe complet                |
+| `delete [id]`        | Supprimer une mémoire         |
 
 #### Documents
 
-| Commande | Description |
-|----------|-------------|
-| `docs` | Lister les documents |
-| `ingest <path>` | Ingérer un fichier (`--force` pour ré-ingérer). Passe automatiquement `source_path` et `source_modified_at`. |
+| Commande           | Description                                                                                                                    |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| `docs`             | Lister les documents                                                                                                           |
+| `ingest <path>`    | Ingérer un fichier (`--force` pour ré-ingérer). Passe automatiquement `source_path` et `source_modified_at`.                   |
 | `ingestdir <path>` | Ingérer un répertoire (`--exclude`, `--confirm`, `--force`). Passe `source_path` (relatif) + `source_modified_at` par fichier. |
-| `deldoc <id>` | Supprimer un document |
+| `deldoc <id>`      | Supprimer un document                                                                                                          |
 
 #### Exploration
 
-| Commande | Description |
-|----------|-------------|
-| `entities` | Entités par type (avec documents sources) |
-| `entity <nom>` | Contexte d'une entité (relations, voisins, documents) |
-| `relations [TYPE]` | Sans argument : résumé. Avec type : détail |
-| `ask <question>` | Poser une question |
+| Commande           | Description                                                |
+| ------------------ | ---------------------------------------------------------- |
+| `entities`         | Entités par type (avec documents sources)                  |
+| `entity <nom>`     | Contexte d'une entité (relations, voisins, documents)      |
+| `relations [TYPE]` | Sans argument : résumé. Avec type : détail                 |
+| `ask <question>`   | Poser une question (réponse LLM)                           |
+| `query <question>` | Données structurées sans LLM (entités, chunks RAG, scores) |
 
 #### Stockage
 
-| Commande | Description |
-|----------|-------------|
-| `check [id]` | Vérifier cohérence S3/graphe |
-| `cleanup [--force]` | Nettoyer les orphelins S3 |
-| `ontologies` | Lister les ontologies |
+| Commande            | Description                  |
+| ------------------- | ---------------------------- |
+| `check [id]`        | Vérifier cohérence S3/graphe |
+| `cleanup [--force]` | Nettoyer les orphelins S3    |
+| `ontologies`        | Lister les ontologies        |
 
 #### 🔑 Tokens
 
-| Commande | Description |
-|----------|-------------|
-| `tokens` | Lister les tokens actifs (hash complet copiable) |
-| `token-create <client> [perms] [mémoires] [--email addr]` | Créer un token |
-| `token-revoke <hash>` | Révoquer un token |
-| `token-grant <hash> <mem1> [mem2]` | Ajouter des mémoires à un token |
-| `token-ungrant <hash> <mem1> [mem2]` | Retirer des mémoires |
-| `token-set <hash> [mem1] [mem2]` | Remplacer les mémoires (vide = toutes) |
+| Commande                                                  | Description                                      |
+| --------------------------------------------------------- | ------------------------------------------------ |
+| `tokens`                                                  | Lister les tokens actifs (hash complet copiable) |
+| `token-create <client> [perms] [mémoires] [--email addr]` | Créer un token                                   |
+| `token-revoke <hash>`                                     | Révoquer un token                                |
+| `token-grant <hash> <mem1> [mem2]`                        | Ajouter des mémoires à un token                  |
+| `token-ungrant <hash> <mem1> [mem2]`                      | Retirer des mémoires                             |
+| `token-set <hash> [mem1] [mem2]`                          | Remplacer les mémoires (vide = toutes)           |
 
 **Exemples token dans le shell :**
 
@@ -252,13 +257,28 @@ Fonctionnalités :
 
 #### Configuration
 
-| Commande | Description |
-|----------|-------------|
+| Commande    | Description                                                 |
+| ----------- | ----------------------------------------------------------- |
 | `limit [N]` | Voir/changer le nombre d'entités par recherche (défaut: 10) |
-| `debug` | Activer/désactiver le mode debug |
-| `clear` | Effacer l'écran |
-| `help` | Aide |
-| `exit` | Quitter |
+| `debug`     | Activer/désactiver le mode debug                            |
+| `clear`     | Effacer l'écran                                             |
+| `help`      | Aide                                                        |
+| `exit`      | Quitter                                                     |
+
+#### Option `--json` (v0.6.5)
+
+Ajoutez `--json` à n'importe quelle commande de consultation pour obtenir le JSON brut du serveur **sans formatage Rich**. Idéal pour le scripting ou le pipe vers `jq`.
+
+```bash
+# Exemples dans le shell interactif
+🧠 JURIDIQUE: query --json réversibilité des données
+🧠 JURIDIQUE: ask --json quelles sont les garanties ?
+🧠 JURIDIQUE: entities --json
+🧠 JURIDIQUE: list --json
+🧠 JURIDIQUE: --json graph          # --json peut être n'importe où
+```
+
+**Commandes supportées** : `list`, `info`, `graph`, `docs`, `entities`, `entity`, `relations`, `ask`, `query`.
 
 ---
 
@@ -297,10 +317,10 @@ Utilise [Rich](https://rich.readthedocs.io/) pour un affichage élégant :
 
 ## Codes de retour
 
-| Code | Signification |
-|------|---------------|
-| 0 | Succès |
-| 1 | Erreur (serveur, réseau, paramètre) |
+| Code | Signification                       |
+| ---- | ----------------------------------- |
+| 0    | Succès                              |
+| 1    | Erreur (serveur, réseau, paramètre) |
 
 ---
 
@@ -333,4 +353,4 @@ pip install httpx httpx-sse click rich prompt_toolkit
 
 ---
 
-*Graph Memory CLI v0.6.3 — Février 2026*
+*Graph Memory CLI v0.6.5 — Février 2026*

@@ -529,6 +529,87 @@ def show_token_updated(result: dict):
     ))
 
 
+def show_query_result(result: dict):
+    """
+    Affiche le résultat d'un memory_query (données structurées, pas de réponse LLM).
+    
+    Sections :
+    - Bannière stats (mode, entités, chunks, docs)
+    - Entités enrichies (type, description, relations, documents)
+    - Chunks RAG (score, section, extrait)
+    - Documents sources
+    """
+    stats = result.get("stats", {})
+    query = result.get("query", "?")
+    mode = result.get("retrieval_mode", "?")
+    
+    # --- Bannière stats ---
+    console.print(Panel.fit(
+        f"[bold]Query:[/bold]      [cyan]{query}[/cyan]\n"
+        f"[bold]Mode:[/bold]       [yellow]{mode}[/yellow]\n"
+        f"[bold]Entités:[/bold]    [green]{stats.get('entities_found', 0)}[/green]  "
+        f"[bold]RAG chunks:[/bold] [green]{stats.get('rag_chunks_retained', 0)}[/green] "
+        f"[dim](filtrés: {stats.get('rag_chunks_filtered', 0)}, seuil: {stats.get('rag_score_threshold', '?')})[/dim]  "
+        f"[bold]Documents:[/bold] [green]{len(result.get('source_documents', []))}[/green]",
+        title="📊 Résultat Query (données structurées)",
+        border_style="blue",
+    ))
+    
+    # --- Entités ---
+    entities = result.get("entities", [])
+    if entities:
+        table = Table(title=f"🔗 Entités ({len(entities)})", show_header=True, show_lines=True)
+        table.add_column("Nom", style="cyan bold", max_width=30)
+        table.add_column("Type", style="magenta", width=15)
+        table.add_column("Description", style="white", max_width=40)
+        table.add_column("Documents", style="dim", max_width=20)
+        table.add_column("Relations", style="dim", max_width=25)
+        
+        for e in entities:
+            docs_str = ", ".join(e.get("source_documents", []))[:20] or "-"
+            rels = e.get("relations", [])
+            rels_str = ", ".join(f"{r['type']}→{r['target']}" for r in rels[:3])
+            if len(rels) > 3:
+                rels_str += f" (+{len(rels)-3})"
+            table.add_row(
+                e.get("name", "?")[:30],
+                e.get("type", "?"),
+                (e.get("description", "") or "")[:40],
+                docs_str,
+                rels_str or "-",
+            )
+        console.print(table)
+    
+    # --- Chunks RAG ---
+    rag_chunks = result.get("rag_chunks", [])
+    if rag_chunks:
+        table = Table(title=f"📎 Chunks RAG ({len(rag_chunks)})", show_header=True, show_lines=True)
+        table.add_column("#", style="dim", width=3)
+        table.add_column("Score", style="green", width=7)
+        table.add_column("Section", style="yellow", max_width=25)
+        table.add_column("Document", style="cyan", max_width=20)
+        table.add_column("Extrait", style="white", max_width=50)
+        
+        for i, chunk in enumerate(rag_chunks, 1):
+            section = chunk.get("section_title") or chunk.get("article_number") or "-"
+            preview = (chunk.get("text", "")[:80]).replace("\n", " ").strip()
+            table.add_row(
+                str(i),
+                f"{chunk.get('score', 0):.4f}",
+                section[:25],
+                chunk.get("filename", "?")[:20],
+                preview + ("…" if len(chunk.get("text", "")) > 80 else ""),
+            )
+        console.print(table)
+    
+    # --- Documents sources ---
+    source_docs = result.get("source_documents", [])
+    if source_docs:
+        console.print(f"\n[bold]📄 Documents sources ({len(source_docs)}):[/bold]")
+        for doc in source_docs:
+            console.print(f"  • [cyan]{doc.get('filename', '?')}[/cyan]  [dim]({doc.get('id', '?')[:8]}…)[/dim]")
+
+
 def show_answer(answer: str, entities: list = None, source_documents: list = None):
     """Affiche une réponse Q&A avec les documents sources."""
     console.print(Panel.fit(

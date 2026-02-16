@@ -37,7 +37,7 @@ from . import BASE_URL, TOKEN
 from .display import (
     show_memories_table, show_documents_table, show_graph_summary,
     show_ingest_result, show_error, show_success, show_warning,
-    show_answer, show_entity_context, show_storage_check,
+    show_answer, show_query_result, show_entity_context, show_storage_check,
     show_cleanup_result, show_tokens_table, show_token_created,
     show_token_updated, console
 )
@@ -972,6 +972,37 @@ def ask(ctx, memory_id, question, limit, debug):
                 console.print(Syntax(json.dumps(result, indent=2, ensure_ascii=False), "json"))
             if result.get("status") == "ok":
                 show_answer(result.get("answer", ""), result.get("entities", []), result.get("source_documents", []))
+            else:
+                show_error(result.get("message", "Erreur"))
+        except Exception as e:
+            show_error(str(e))
+    asyncio.run(_run())
+
+
+# =============================================================================
+# Query (données structurées sans LLM)
+# =============================================================================
+
+@cli.command("query")
+@click.argument("memory_id")
+@click.argument("query_text")
+@click.option("--limit", "-l", default=10, help="Max entités à rechercher (défaut: 10)")
+@click.option("--json", "-j", "output_json", is_flag=True, help="Sortie JSON brute")
+@click.pass_context
+def query(ctx, memory_id, query_text, limit, output_json):
+    """📊 Interroger une mémoire (données structurées, sans LLM)."""
+    async def _run():
+        try:
+            client = MCPClient(ctx.obj["url"], ctx.obj["token"])
+            with Progress(SpinnerColumn(), TextColumn("{task.description}"), console=console) as p:
+                p.add_task("Recherche…", total=None)
+                result = await client.call_tool("memory_query", {
+                    "memory_id": memory_id, "query": query_text, "limit": limit
+                })
+            if output_json:
+                console.print(Syntax(json.dumps(result, indent=2, ensure_ascii=False), "json"))
+            elif result.get("status") == "ok":
+                show_query_result(result)
             else:
                 show_error(result.get("message", "Erreur"))
         except Exception as e:
