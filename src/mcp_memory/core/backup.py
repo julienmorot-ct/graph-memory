@@ -31,6 +31,13 @@ from ..config import get_settings
 # Version du format de backup (pour compatibilité future)
 BACKUP_FORMAT_VERSION = "1.0"
 
+# Taille max d'une archive tar.gz en bytes (100 MB)
+MAX_ARCHIVE_SIZE_BYTES = 100 * 1024 * 1024
+
+# Regex pour valider les composants d'un backup_id (pas de path traversal)
+import re
+_SAFE_ID_RE = re.compile(r'^[A-Za-z0-9_-]+$')
+
 
 class BackupService:
     """
@@ -53,6 +60,43 @@ class BackupService:
         self._settings = get_settings()
         self._prefix = self._settings.s3_backup_prefix
         self._retention = self._settings.backup_retention_count
+    
+    @staticmethod
+    def _validate_backup_id(backup_id: str) -> tuple:
+        """
+        Valide et décompose un backup_id en (memory_id, timestamp).
+        
+        Sécurité : empêche l'injection de path traversal (../, /, etc.)
+        dans le backup_id qui est utilisé pour construire des clés S3.
+        
+        Raises:
+            ValueError si le format est invalide ou contient des caractères dangereux
+        """
+        if not backup_id or not isinstance(backup_id, str):
+            raise ValueError("backup_id requis")
+        
+        parts = backup_id.split("/", 1)
+        if len(parts) != 2:
+            raise ValueError(
+                f"backup_id invalide: '{backup_id}'. "
+                f"Format attendu: 'MEMORY_ID/TIMESTAMP'"
+            )
+        
+        memory_id, timestamp = parts
+        
+        # Valider chaque composant (alphanumérique + tirets + underscores uniquement)
+        if not _SAFE_ID_RE.match(memory_id):
+            raise ValueError(
+                f"memory_id invalide dans backup_id: '{memory_id}'. "
+                f"Caractères autorisés: A-Z, a-z, 0-9, -, _"
+            )
+        if not _SAFE_ID_RE.match(timestamp):
+            raise ValueError(
+                f"timestamp invalide dans backup_id: '{timestamp}'. "
+                f"Caractères autorisés: A-Z, a-z, 0-9, -, _"
+            )
+        
+        return memory_id, timestamp
     
     def _backup_s3_prefix(self, memory_id: str, timestamp: str) -> str:
         """Construit le préfixe S3 pour un backup."""
@@ -322,14 +366,10 @@ class BackupService:
                 except Exception:
                     pass
         
+        # Valider le backup_id (anti path-traversal)
+        memory_id, timestamp = self._validate_backup_id(backup_id)
+        
         await _log(f"Démarrage restauration: {backup_id}")
-        
-        # Extraire memory_id et timestamp du backup_id
-        parts = backup_id.split("/", 1)
-        if len(parts) != 2:
-            raise ValueError(f"backup_id invalide: '{backup_id}'. Format attendu: 'memory_id/timestamp'")
-        
-        memory_id, timestamp = parts
         backup_prefix = self._backup_s3_prefix(memory_id, timestamp)
         
         # === 1. Télécharger et vérifier le manifest ===
@@ -456,11 +496,8 @@ class BackupService:
                 except Exception:
                     pass
         
-        parts = backup_id.split("/", 1)
-        if len(parts) != 2:
-            raise ValueError(f"backup_id invalide: '{backup_id}'")
-        
-        memory_id, timestamp = parts
+        # Valider le backup_id (anti path-traversal)
+        memory_id, timestamp = self._validate_backup_id(backup_id)
         backup_prefix = self._backup_s3_prefix(memory_id, timestamp)
         
         await _log(f"Préparation archive: {backup_id}")
@@ -573,7 +610,15 @@ class BackupService:
                 except Exception:
                     pass
         
-        await _log("Extraction de l'archive tar.gz...")
+        # === 0. Vérifier la taille de l'archive (anti DoS) ===
+        archive_size = len(archive_bytes)
+        if archive_size > MAX_ARCHIVE_SIZE_BYTES:
+            raise ValueError(
+                f"Archive trop volumineuse: {self._human_size(archive_size)} "
+                f"(max: {self._human_size(MAX_ARCHIVE_SIZE_BYTES)})"
+            )
+        
+        await _log(f"Archive reçue: {self._human_size(archive_size)}")
         
         # === 1. Extraire l'archive en mémoire ===
         buf = io.BytesIO(archive_bytes)
@@ -701,6 +746,21 @@ class BackupService:
             if not doc_filename:
                 continue
             
+            # === SÉCURITÉ : anti path-traversal ===
+            # Rejeter les noms contenant ../ ou commençant par /
+            if ".." in doc_filename or doc_filename.startswith("/"):
+                print(f"🔒 [RestoreArchive] Nom de fichier rejeté (path traversal): "
+                      f"'{doc_filename}'", file=sys.stderr)
+                docs_skipped += 1
+                continue
+            # Ne garder que le basename (pas de sous-dossiers inattendus)
+            import os.path as _osp
+            safe_filename = _osp.basename(doc_filename)
+            if safe_filename != doc_filename:
+                print(f"🔒 [RestoreArchive] Nom normalisé: '{doc_filename}' → "
+                      f"'{safe_filename}'", file=sys.stderr)
+                doc_filename = safe_filename
+            
             # Lire le contenu
             doc_content = _read_member(doc_member)
             
@@ -784,11 +844,8 @@ class BackupService:
         Returns:
             Dict avec le nombre de fichiers supprimés
         """
-        parts = backup_id.split("/", 1)
-        if len(parts) != 2:
-            raise ValueError(f"backup_id invalide: '{backup_id}'")
-        
-        memory_id, timestamp = parts
+        # Valider le backup_id (anti path-traversal)
+        memory_id, timestamp = self._validate_backup_id(backup_id)
         prefix = self._backup_s3_prefix(memory_id, timestamp)
         
         result = await self._storage.delete_prefix(f"{prefix}/")

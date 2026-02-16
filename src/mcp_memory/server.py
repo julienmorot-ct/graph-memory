@@ -23,7 +23,7 @@ from mcp.server.fastmcp import FastMCP, Context
 
 from .config import get_settings
 from .auth.middleware import AuthMiddleware, LoggingMiddleware, StaticFilesMiddleware
-from .auth.context import check_memory_access, current_auth
+from .auth.context import check_memory_access, check_write_permission, current_auth
 
 
 # =============================================================================
@@ -1897,9 +1897,13 @@ async def backup_create(
         backup_id, statistiques, temps d'exécution
     """
     try:
+        # Sécurité : vérifier accès mémoire + permission write
         access_err = check_memory_access(memory_id)
         if access_err:
             return access_err
+        write_err = check_write_permission()
+        if write_err:
+            return write_err
         
         async def _progress(msg):
             if ctx:
@@ -1974,6 +1978,16 @@ async def backup_restore(
         Compteurs de restauration (entités, relations, vecteurs, documents S3)
     """
     try:
+        # Sécurité : extraire memory_id du backup_id, vérifier accès + write
+        from .core.backup import BackupService
+        mid, _ = BackupService._validate_backup_id(backup_id)
+        access_err = check_memory_access(mid)
+        if access_err:
+            return access_err
+        write_err = check_write_permission()
+        if write_err:
+            return write_err
+        
         async def _progress(msg):
             if ctx:
                 try:
@@ -2010,6 +2024,13 @@ async def backup_download(
         Archive tar.gz encodée en base64 + nom de fichier suggéré
     """
     try:
+        # Sécurité : extraire memory_id du backup_id, vérifier accès mémoire
+        from .core.backup import BackupService
+        mid, _ = BackupService._validate_backup_id(backup_id)
+        access_err = check_memory_access(mid)
+        if access_err:
+            return access_err
+        
         async def _progress(msg):
             if ctx:
                 try:
@@ -2055,6 +2076,16 @@ async def backup_delete(backup_id: str) -> dict:
         Nombre de fichiers supprimés
     """
     try:
+        # Sécurité : extraire memory_id du backup_id, vérifier accès + write
+        from .core.backup import BackupService
+        mid, _ = BackupService._validate_backup_id(backup_id)
+        access_err = check_memory_access(mid)
+        if access_err:
+            return access_err
+        write_err = check_write_permission()
+        if write_err:
+            return write_err
+        
         result = await get_backup().delete_backup(backup_id)
         return result
     except Exception as e:
@@ -2083,6 +2114,11 @@ async def backup_restore_archive(
         Compteurs de restauration (entités, relations, vecteurs, documents S3)
     """
     try:
+        # Sécurité : vérifier permission write avant restore
+        write_err = check_write_permission()
+        if write_err:
+            return write_err
+        
         archive_bytes = base64.b64decode(archive_base64)
         
         async def _progress(msg):

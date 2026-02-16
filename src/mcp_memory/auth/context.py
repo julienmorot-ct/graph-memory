@@ -71,3 +71,41 @@ def check_memory_access(memory_id: str) -> Optional[dict]:
         }
     
     return None  # Autorisé
+
+
+def check_write_permission() -> Optional[dict]:
+    """
+    Vérifie si le contexte d'auth actuel a la permission d'écriture.
+    
+    Règles :
+    - Pas d'auth (localhost, public) → autorisé (accès libre)
+    - Permission "admin" ou "write" → autorisé
+    - Bootstrap key → autorisé
+    - Sinon → refusé
+    
+    Returns:
+        None si autorisé, dict d'erreur si refusé
+    """
+    auth = current_auth.get()
+    
+    # Pas d'auth = accès libre (localhost)
+    if auth is None:
+        return None
+    
+    # Admin ou bootstrap = accès total
+    if auth.get("type") == "bootstrap":
+        return None
+    
+    permissions = auth.get("permissions", [])
+    if "admin" in permissions or "write" in permissions:
+        return None
+    
+    client = auth.get("client_name", "inconnu")
+    return {
+        "status": "error",
+        "message": (
+            f"Accès refusé: le token du client '{client}' "
+            f"n'a pas la permission 'write'. "
+            f"Permissions actuelles: {permissions}"
+        )
+    }
