@@ -10,7 +10,8 @@
 FROM caddy:2-builder AS builder
 
 RUN xcaddy build \
-    --with github.com/corazawaf/coraza-caddy/v2
+    --with github.com/corazawaf/coraza-caddy/v2 \
+    --with github.com/mholt/caddy-ratelimit
 
 # Stage 2 : Image finale
 FROM caddy:2-alpine

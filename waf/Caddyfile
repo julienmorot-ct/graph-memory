@@ -36,8 +36,10 @@
 # =============================================================================
 
 {
-	# Ordre des directives : WAF en premier dans les blocs qui l'utilisent
-	order coraza_waf first
+	# Ordre des directives : rate_limit → WAF → reverse_proxy
+	# Les requêtes excédentaires sont rejetées (429) AVANT le WAF
+	order rate_limit first
+	order coraza_waf after rate_limit
 
 	# Pas de page admin Caddy
 	admin off
@@ -56,6 +58,50 @@
 		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
 		-Server
 		-X-Powered-By
+	}
+
+	# =========================================================================
+	# Rate Limiting (appliqué AVANT le WAF — rejet rapide en 429)
+	# =========================================================================
+	# Protège contre le DoS et l'abus par IP. Fenêtre glissante.
+	# Les requêtes excédentaires reçoivent HTTP 429 + Retry-After.
+	#
+	# Limites calibrées pour des agents IA sur Internet :
+	# - SSE : 10 nouvelles connexions/min (1 connexion dure des heures)
+	# - Messages MCP : 60 appels d'outils/min (burst d'un agent actif)
+	# - API REST : 30 requêtes/min (interface web)
+	# - Global : 200 requêtes/min (toutes routes confondues)
+	# =========================================================================
+	rate_limit {
+		zone sse {
+			match {
+				path /sse*
+			}
+			key {remote_host}
+			events 10
+			window 1m
+		}
+		zone messages {
+			match {
+				path /messages/*
+			}
+			key {remote_host}
+			events 60
+			window 1m
+		}
+		zone api {
+			match {
+				path /api/*
+			}
+			key {remote_host}
+			events 30
+			window 1m
+		}
+		zone global {
+			key {remote_host}
+			events 200
+			window 1m
+		}
 	}
 
 	# =========================================================================
