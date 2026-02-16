@@ -33,6 +33,10 @@ Développé par **[Cloud Temple](https://www.cloud-temple.com)**.
 
 > Historique complet : voir [CHANGELOG.md](CHANGELOG.md)
 
+### v1.2.1 — 17 février 2026 — 🐛 Fix CLI production
+- 🐛 **Fix CLI 401 sur serveur distant** — Variables `MCP_URL` / `MCP_TOKEN` prioritaires pour piloter un serveur de production sans conflit avec le `.env` local dev
+- 📖 **Documentation CLI production** — Guide complet pour utiliser la CLI depuis un poste distant (`scripts/README.md`, `DESIGN/DEPLOIEMENT_PRODUCTION.md` §15)
+
 ### v1.2.0 — 16 février 2026 — 💾 Backup / Restore complet
 - 💾 **Système de Backup/Restore** — 7 outils MCP : `backup_create`, `backup_list`, `backup_restore`, `backup_download`, `backup_delete`, `backup_restore_archive`
 - 📦 **Restore depuis archive tar.gz** — Cycle complet : backup → download → suppression serveur → restore depuis fichier local (avec re-upload S3 des documents)
@@ -820,4 +824,4 @@ Développé par **[Cloud Temple](https://www.cloud-temple.com)**.
 
 ---
 
-*Graph Memory v1.2.0 — Février 2026*
+*Graph Memory v1.2.1 — Février 2026*

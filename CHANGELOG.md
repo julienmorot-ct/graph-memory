@@ -7,6 +7,26 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [1.2.1] — 2026-02-17
+
+### 🐛 Fix CLI production — Variables MCP_URL / MCP_TOKEN
+
+#### Corrigé
+- **CLI 401 sur serveur de production** (`scripts/cli/__init__.py`, `scripts/cli/commands.py`) — La CLI ne pouvait pas se connecter à un serveur de production distant. Double conflit de variables d'environnement :
+  1. `__init__.py` lisait `MCP_SERVER_URL` (pas `MCP_URL`) comme variable d'environnement.
+  2. Click déclarait `envvar="ADMIN_BOOTSTRAP_KEY"` → `load_dotenv()` chargeait le `.env` local dev (`admin_bootstrap_key_change_me`) qui écrasait le token production.
+  - **Fix** : `MCP_URL` et `MCP_TOKEN` sont désormais prioritaires (fallback sur `MCP_SERVER_URL` / `ADMIN_BOOTSTRAP_KEY`). Click accepte une liste ordonnée `envvar=["MCP_TOKEN", "ADMIN_BOOTSTRAP_KEY"]`.
+
+#### Ajouté
+- **Documentation CLI production** (`scripts/README.md`) — Section Configuration réécrite : deux jeux de variables (CLI vs serveur), usage dev vs prod, fichier `~/.env.mcp-cli`.
+- **Guide déploiement §15** (`DESIGN/DEPLOIEMENT_PRODUCTION.md`) — Nouvelle section "Utiliser la CLI depuis un poste distant" avec 3 options de configuration et schéma de résolution des variables.
+- **`.env.example`** — Section CLI avec `MCP_URL` / `MCP_TOKEN` commentés et documentés.
+
+#### Fichiers modifiés
+`scripts/cli/__init__.py`, `scripts/cli/commands.py`, `scripts/README.md`, `DESIGN/DEPLOIEMENT_PRODUCTION.md`, `.env.example`, `VERSION`, `src/mcp_memory/__init__.py`
+
+---
+
 ## [1.2.0] — 2026-02-16
 
 ### 💾 Backup / Restore complet + Fix storage_check

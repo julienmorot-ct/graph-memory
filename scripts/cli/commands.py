@@ -47,8 +47,8 @@ from .display import (
 # =============================================================================
 
 @click.group(invoke_without_command=True)
-@click.option("--url", envvar="MCP_SERVER_URL", default=BASE_URL, help="URL du serveur MCP")
-@click.option("--token", envvar="ADMIN_BOOTSTRAP_KEY", default=TOKEN, help="Token d'authentification")
+@click.option("--url", envvar=["MCP_URL", "MCP_SERVER_URL"], default=BASE_URL, help="URL du serveur MCP")
+@click.option("--token", envvar=["MCP_TOKEN", "ADMIN_BOOTSTRAP_KEY"], default=TOKEN, help="Token d'authentification")
 @click.pass_context
 def cli(ctx, url, token):
     """🧠 MCP Memory CLI - Pilotez votre serveur MCP Memory.

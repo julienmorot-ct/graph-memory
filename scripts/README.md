@@ -20,14 +20,64 @@ docker compose up -d
 
 ## Configuration
 
-La CLI utilise les variables d'environnement du fichier `.env` à la racine :
+### Variables d'environnement
 
-| Variable              | Description                                      |
-| --------------------- | ------------------------------------------------ |
-| `MCP_SERVER_URL`      | URL du serveur (défaut: `http://localhost:8080`) |
-| `ADMIN_BOOTSTRAP_KEY` | Token d'authentification admin                   |
+La CLI utilise deux jeux de variables, par ordre de priorité :
+
+| Priorité | Variable URL | Variable Token | Usage |
+| :------: | ------------ | -------------- | ----- |
+| **1** (recommandé) | `MCP_URL` | `MCP_TOKEN` | **Variables dédiées CLI** — n'interfèrent pas avec le `.env` serveur |
+| 2 (fallback) | `MCP_SERVER_URL` | `ADMIN_BOOTSTRAP_KEY` | Compatibilité — lues aussi depuis le `.env` local |
+
+**Défaut** : `http://localhost:8080` (URL) et `admin_bootstrap_key_change_me` (token).
 
 Ou passez-les en options : `--url` et `--token`.
+
+### Usage en développement (serveur local)
+
+En dev, le `.env` à la racine contient `ADMIN_BOOTSTRAP_KEY` — la CLI le charge automatiquement via `load_dotenv()`.
+Rien à configurer, ça marche directement :
+
+```bash
+python scripts/mcp_cli.py health
+# → URL: http://localhost:8080, token lu depuis .env
+```
+
+### Usage en production (serveur distant)
+
+Pour piloter un serveur de production, utilisez `MCP_URL` et `MCP_TOKEN` :
+
+```bash
+# Option 1 : Variables d'environnement (recommandé)
+export MCP_URL=https://mcp-memory.example.com
+export MCP_TOKEN=votre_bootstrap_key_production
+python scripts/mcp_cli.py health
+
+# Option 2 : Inline (ponctuel)
+MCP_URL=https://mcp-memory.example.com \
+MCP_TOKEN=votre_bootstrap_key_production \
+python scripts/mcp_cli.py memory list
+
+# Option 3 : Options CLI
+python scripts/mcp_cli.py --url https://mcp-memory.example.com \
+  --token votre_bootstrap_key_production health
+```
+
+> **⚠️ Important** : Ne mettez PAS `MCP_URL`/`MCP_TOKEN` dans le `.env` du serveur !  
+> Le `.env` contient la config **serveur** (S3, Neo4j, etc.). Les variables CLI sont pour le **poste client**.  
+> Si vous voulez un fichier de config CLI persistant, créez un `~/.env.mcp-cli` :
+> ```bash
+> # ~/.env.mcp-cli — Configuration CLI production
+> MCP_URL=https://mcp-memory.example.com
+> MCP_TOKEN=votre_bootstrap_key_production
+> ```
+> Puis sourcez-le : `source ~/.env.mcp-cli && python scripts/mcp_cli.py health`
+
+### Pourquoi deux jeux de variables ?
+
+Le `.env` local est chargé par `load_dotenv()` au démarrage de la CLI. Si vous avez un `.env` de développement avec `ADMIN_BOOTSTRAP_KEY=admin_bootstrap_key_change_me`, cette valeur serait utilisée pour la production — ce qui échouerait avec une erreur 401.
+
+`MCP_URL` et `MCP_TOKEN` sont **prioritaires** et ne sont jamais dans le `.env` serveur, ce qui évite tout conflit dev/prod.
 
 ---
 
@@ -416,4 +466,4 @@ pip install httpx httpx-sse click rich prompt_toolkit
 
 ---
 
-*Graph Memory CLI v1.2.0 — Février 2026*
+*Graph Memory CLI v1.2.1 — Février 2026*
