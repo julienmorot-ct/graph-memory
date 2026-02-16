@@ -7,6 +7,33 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
+## [1.1.0] — 2026-02-16
+
+### 🔒 Rate Limiting + Analyse de Risques Sécurité
+
+#### Ajouté
+- **Rate Limiting WAF** (`waf/Caddyfile`, `waf/Dockerfile`) — Module `caddy-ratelimit` compilé dans l'image WAF via `xcaddy`. 4 zones de limitation par IP :
+  - `/sse*` : 10 connexions/min (SSE longue durée)
+  - `/messages/*` : 60 appels/min (outils MCP, burst d'un agent actif)
+  - `/api/*` : 30 requêtes/min (interface web)
+  - Global : 200 requêtes/min (toutes routes confondues)
+  - Requêtes excédentaires → HTTP 429 (Too Many Requests)
+- **Analyse de Risques Sécurité** (`DESIGN/ANALYSE_RISQUES_SECURITE.md`) — Document complet :
+  - Matrice de risques par route (/sse, /messages, /api, /public)
+  - Vecteurs d'attaque avec probabilité, impact, risque, mitigation
+  - Risques transversaux : prompt injection, token compromise, DoS, CSP unsafe-inline
+  - Conformité OWASP Top 10, SecNumCloud, RGPD
+  - Recommandations priorisées (haute/moyenne/basse)
+- **Script de test rate limiting** (`scripts/test_rate_limit.sh`) — Envoie 35 requêtes rapides sur `/api/memories`, vérifie que les 30 premières passent et les suivantes reçoivent HTTP 429.
+
+#### Modifié
+- **WAF Dockerfile** — Ajout du plugin `caddy-ratelimit` dans la compilation `xcaddy`.
+
+#### Fichiers ajoutés/modifiés
+`waf/Dockerfile`, `waf/Caddyfile`, `DESIGN/ANALYSE_RISQUES_SECURITE.md` (nouveau), `scripts/test_rate_limit.sh` (nouveau), `VERSION`, `src/mcp_memory/__init__.py`, `src/mcp_memory/auth/middleware.py`
+
+---
+
 ## [1.0.0] — 2026-02-16
 
 ### 🎉 Version 1.0 — Production Ready

@@ -33,13 +33,17 @@ Développé par **[Cloud Temple](https://www.cloud-temple.com)**.
 
 > Historique complet : voir [CHANGELOG.md](CHANGELOG.md)
 
+### v1.1.0 — 16 février 2026 — 🔒 Rate Limiting + Analyse de Risques
+- 🔒 **Rate Limiting WAF** — 4 zones par IP (`caddy-ratelimit`) : SSE 10/min, messages 60/min, API 30/min, global 200/min
+- 📋 **Analyse de Risques Sécurité** — Matrice par route, conformité OWASP Top 10/SecNumCloud/RGPD
+
 ### v1.0.0 — 16 février 2026 — 🎉 Production Ready
 - 🔒 **Coraza WAF** — Image custom (`xcaddy` + `coraza-caddy/v2`), OWASP CRS, seul port exposé (8080)
-- 🔒 **Architecture réseau durcie** — Neo4j/Qdrant/MCP internes, container non-root
+- � **Architecture réseau durcie** — Neo4j/Qdrant/MCP internes, container non-root
 - 🔒 **TLS Let's Encrypt natif** — `SITE_ADDRESS` pour basculer dev/prod
 - 🔒 **Headers de sécurité** — CSP, X-Frame-Options DENY, nosniff, Referrer-Policy, Permissions-Policy
 - ⚡ **Routage WAF intelligent** — SSE/messages sans WAF (streaming), routes web avec WAF
-- 🔧 **CLI sur port 8080** — Passe désormais par le WAF
+- �🔧 **CLI sur port 8080** — Passe désormais par le WAF
 
 ### v0.6.5 — 16 février 2026 — Tool memory_query + Option --json CLI
 - ✨ **Tool MCP `memory_query`** — Interrogation structurée sans LLM (données brutes pour agents IA)
@@ -649,6 +653,11 @@ mcp> # utiliser les commandes d'admin
 Depuis v0.6.6, un **WAF Coraza** (basé sur Caddy) protège le service :
 - **OWASP CRS** : protection contre injections SQL/XSS, path traversal, SSRF, scanners
 - **Headers de sécurité** : CSP, X-Frame-Options (DENY), X-Content-Type-Options, Referrer-Policy, Permissions-Policy
+- **Rate Limiting** (depuis v1.1.0) : 
+  - SSE : 10 connexions/min (longue durée)
+  - Messages MCP : 60 appels/min (burst autorisé)
+  - API Web : 30 requêtes/min
+  - Global : 200 requêtes/min
 - **Container non-root** : le service MCP tourne sous l'utilisateur `mcp` (pas root)
 - **Réseau isolé** : Neo4j et Qdrant ne sont PAS exposés à l'extérieur
 - **TLS automatique** : en production, Caddy obtient et renouvelle les certificats Let's Encrypt
@@ -786,4 +795,4 @@ Développé par **[Cloud Temple](https://www.cloud-temple.com)**.
 
 ---
 
-*Graph Memory v1.0.0 — Février 2026*
+*Graph Memory v1.1.0 — Février 2026*

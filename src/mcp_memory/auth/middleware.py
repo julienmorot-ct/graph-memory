@@ -305,7 +305,7 @@ class StaticFilesMiddleware:
             
             data = {
                 "status": "healthy" if neo4j_ok else "degraded",
-                "version": "1.0.0",
+                "version": "1.1.0",
                 "timestamp": datetime.utcnow().isoformat(),
                 "services": {
                     "neo4j": {"status": "ok" if neo4j_ok else "error", "message": neo4j_msg}
@@ -315,7 +315,7 @@ class StaticFilesMiddleware:
         except Exception as e:
             await self._send_json(send, {
                 "status": "error",
-                "version": "1.0.0",
+                "version": "1.1.0",
                 "message": str(e)
             }, 500)
     
