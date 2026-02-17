@@ -33,8 +33,15 @@ from .auth.context import check_memory_access, check_write_permission, current_a
 settings = get_settings()
 
 # Créer l'instance FastMCP
+# IMPORTANT: host="0.0.0.0" évite l'activation automatique de la protection
+# DNS rebinding du SDK MCP v1.26+ qui n'autorise que localhost par défaut.
+# Sans cela, les requêtes avec Host: graph-mem.mcp.cloud-temple.app sont
+# rejetées avec un 421 Misdirected Request derrière un reverse proxy.
+# Ref: mcp/server/fastmcp/server.py ligne 166 + mcp/server/transport_security.py
 mcp = FastMCP(
-    name=settings.mcp_server_name
+    name=settings.mcp_server_name,
+    host=settings.mcp_server_host,
+    port=settings.mcp_server_port,
 )
 
 
