@@ -591,7 +591,7 @@ async def memory_ingest(
         # Compter les types de relations
         from collections import Counter
         relation_types = Counter(r.type for r in extraction.relations)
-        entity_types = Counter(e.type.value if hasattr(e.type, 'value') else str(e.type) for e in extraction.entities)
+        entity_types = Counter(e.type for e in extraction.entities)
         
         _elapsed = round(_time.monotonic() - _t0, 1)
         await _log(f"🏁 Ingestion terminée en {_elapsed}s")

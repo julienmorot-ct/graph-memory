@@ -1,5 +1,37 @@
 # Changelog
 
+## [1.3.1] - 2026-02-18
+
+### Bugfix critique — Types d'entités dynamiques par ontologie
+
+**Problème** : Sur 29 documents ingérés avec l'ontologie `presales`, 277 entités
+étaient classifiées `Other` au lieu d'utiliser les 28 types définis (Differentiator,
+Platform, KPI, Persona, PresalesDomain, etc.).
+
+**Cause racine** : `ExtractedEntity.type` était un `EntityType` Enum Python avec
+12 valeurs fixes hardcodées. Toute réponse du LLM avec un type ontologique
+inconnu (ex: `Differentiator`, `ClientReference`) tombait dans `EntityType.OTHER`
+via un `dict.get(..., OTHER)`. Les relations fonctionnaient déjà correctement
+(via `_parse_relation_type` dynamique) mais les entités non.
+
+**Corrections** :
+- `models.py` : `ExtractedEntity.type` → `str` (string libre, comme `ExtractedRelation.type`)
+- `extractor.py` : `_parse_entity_type` remplacée par `_normalize_entity_type(type_str, known_types=None)` :
+  1. Mapping de compatibilité base (12 types existants)
+  2. Recherche dans les types de l'ontologie chargée (insensible à la casse)
+  3. Acceptation de tout type alphanumérique valide (PascalCase, CamelCase, UPPER)
+  4. Fallback `"Other"` uniquement en dernier recours
+- `_parse_extraction()` : nouveau param `known_entity_types` propagé à `_normalize_entity_type`
+- `extract_with_ontology()` : construit `ontology_entity_types = {et.name for et in ontology.entity_types}` et le passe au parser
+- `extract_with_ontology_chunked()` : idem, propagé à chaque chunk
+- `_build_cumulative_context()` : simplifié `e.type.value → e.type` (str direct)
+- `server.py` : simplifié `e.type.value if hasattr... → e.type` (str direct)
+
+**Impact** : Les nouvelles ingestions avec ontologie `presales` (ou toute autre
+ontologie) utiliseront correctement les types d'entités définis. Les données
+existantes (277 `Other`) doivent être réingérées pour bénéficier de la correction.
+
+
 Toutes les modifications notables de ce projet sont documentées dans ce fichier.
 
 Le format est basé sur [Keep a Changelog](https://keepachangelog.com/fr/1.0.0/),

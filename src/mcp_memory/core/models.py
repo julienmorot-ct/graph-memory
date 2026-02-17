@@ -56,14 +56,16 @@ class SearchMode(str, Enum):
 # =============================================================================
 
 class ExtractedEntity(BaseModel):
-    """Entité extraite par le LLM."""
+    """Entité extraite par le LLM.
+    
+    Note: 'type' est une string libre depuis v1.3.1 pour supporter les types
+    dynamiques des ontologies (presales, cloud, etc.) sans être limité à l'Enum
+    EntityType. L'Enum est conservée pour la compatibilité avec le code existant.
+    """
     name: str = Field(..., description="Nom de l'entité")
-    type: EntityType = Field(default=EntityType.OTHER, description="Type d'entité")
+    type: str = Field(default="Other", description="Type d'entité (string libre, supporte les types d'ontologie)")
     description: Optional[str] = Field(None, description="Description contextuelle")
     aliases: List[str] = Field(default_factory=list, description="Noms alternatifs")
-    
-    class Config:
-        use_enum_values = True
 
 
 class ExtractedRelation(BaseModel):

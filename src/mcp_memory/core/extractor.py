@@ -145,7 +145,12 @@ class ExtractorService:
             print(f"❌ [Extractor] Erreur API: {e}", file=sys.stderr)
             raise
     
-    def _parse_extraction(self, content: str, known_relation_types: Optional[set] = None) -> ExtractionResult:
+    def _parse_extraction(
+        self,
+        content: str,
+        known_relation_types: Optional[set] = None,
+        known_entity_types: Optional[set] = None,
+    ) -> ExtractionResult:
         """
         Parse la réponse JSON du LLM.
         
@@ -153,6 +158,9 @@ class ExtractorService:
             content: Contenu JSON brut du LLM
             known_relation_types: Types de relations connus (depuis l'ontologie).
                                    Si None, utilise BASE_RELATION_TYPES.
+            known_entity_types: Types d'entités connus (depuis l'ontologie).
+                                 Permet d'accepter les types dynamiques (ex: Differentiator, KPI…).
+                                 Si None, seuls les 12 types de base sont reconnus.
         """
         try:
             # Nettoyer le contenu (parfois le LLM ajoute des ```json)
@@ -168,7 +176,10 @@ class ExtractorService:
             # Parser les entités
             entities = []
             for e in data.get("entities", []):
-                entity_type = self._parse_entity_type(e.get("type", "Other"))
+                entity_type = self._normalize_entity_type(
+                    e.get("type", "Other"),
+                    known_types=known_entity_types,
+                )
                 entities.append(ExtractedEntity(
                     name=e.get("name", "").strip(),
                     type=entity_type,
@@ -203,23 +214,65 @@ class ExtractorService:
             return ExtractionResult(summary=None)
     
     @staticmethod
-    def _parse_entity_type(type_str: str) -> EntityType:
-        """Convertit une string en EntityType."""
-        type_map = {
-            "person": EntityType.PERSON,
-            "organization": EntityType.ORGANIZATION,
-            "concept": EntityType.CONCEPT,
-            "location": EntityType.LOCATION,
-            "date": EntityType.DATE,
-            "product": EntityType.PRODUCT,
-            "service": EntityType.SERVICE,
-            "clause": EntityType.CLAUSE,
-            "certification": EntityType.CERTIFICATION,
-            "metric": EntityType.METRIC,
-            "duration": EntityType.DURATION,
-            "amount": EntityType.AMOUNT,
+    def _normalize_entity_type(type_str: str, known_types: Optional[set] = None) -> str:
+        """
+        Convertit une string en type d'entité (string libre).
+        
+        Stratégie (par ordre de priorité) :
+        1. Mapping de compatibilité base (insensible à la casse) → valeur normalisée
+        2. Types connus de l'ontologie (insensible à la casse) → casse exacte de l'ontologie
+        3. Tout type au format alphanumérique valide → retourné tel quel
+        4. Fallback : "Other"
+        
+        Args:
+            type_str: Type brut retourné par le LLM
+            known_types: Set de types d'entités de l'ontologie (ex: {"Differentiator", "KPI", ...})
+        """
+        if not type_str:
+            return "Other"
+        
+        # Mapping de compatibilité (clés minuscules → valeur normalisée)
+        TYPE_MAP = {
+            "person": "Person",
+            "organization": "Organization",
+            "concept": "Concept",
+            "location": "Location",
+            "date": "Date",
+            "product": "Product",
+            "service": "Service",
+            "clause": "Clause",
+            "certification": "Certification",
+            "metric": "Metric",
+            "duration": "Duration",
+            "amount": "Amount",
+            "other": "Other",
         }
-        return type_map.get(type_str.lower(), EntityType.OTHER)
+        
+        # 1. Chercher dans le mapping de base (insensible à la casse)
+        mapped = TYPE_MAP.get(type_str.lower())
+        if mapped:
+            return mapped
+        
+        # 2. Chercher dans les types connus de l'ontologie (insensible à la casse)
+        if known_types:
+            type_lower = type_str.lower()
+            for kt in known_types:
+                if kt.lower() == type_lower:
+                    return kt  # Retourner avec la casse exacte de l'ontologie
+        
+        # 3. Accepter tout type au format PascalCase/CamelCase/UPPER valide
+        # Ex: "Differentiator", "ClientReference", "KPI", "PresalesDomain", "SLA"
+        stripped = type_str.strip()
+        if stripped and stripped.replace("_", "").isalnum():
+            return stripped  # Retourner tel quel (format libre valide)
+        
+        return "Other"
+
+    # Alias de compatibilité (ne plus appeler _parse_entity_type directement)
+    @staticmethod
+    def _parse_entity_type(type_str: str) -> str:
+        """⚠️ Déprécié — utiliser _normalize_entity_type(type_str, known_types)."""
+        return ExtractorService._normalize_entity_type(type_str)
     
     # Types de base (utilisés quand aucune ontologie n'est chargée)
     BASE_RELATION_TYPES = {
@@ -314,14 +367,19 @@ class ExtractorService:
                 print(f"⚠️ [Extractor] Réponse LLM vide", file=sys.stderr)
                 return ExtractionResult(summary=None)
             
-            # Extraire les types de relations depuis l'ontologie chargée
+            # Extraire les types depuis l'ontologie chargée
             ontology_relation_types = {
                 rt.name.upper() for rt in ontology.relation_types
             } | self.BASE_RELATION_TYPES  # Union avec les types de base
+            ontology_entity_types = {et.name for et in ontology.entity_types}
             
-            print(f"🔗 [Extractor] Types de relations ontologie '{ontology.name}': {sorted(ontology_relation_types)}", file=sys.stderr)
+            print(f"🔗 [Extractor] Types ontologie '{ontology.name}': {len(ontology_entity_types)} entités, {len(ontology_relation_types)} relations", file=sys.stderr)
             
-            result = self._parse_extraction(content, known_relation_types=ontology_relation_types)
+            result = self._parse_extraction(
+                content,
+                known_relation_types=ontology_relation_types,
+                known_entity_types=ontology_entity_types,
+            )
             
             print(f"✅ [Extractor] Extrait ({ontology.name}): {len(result.entities)} entités, {len(result.relations)} relations", file=sys.stderr)
             
@@ -418,10 +476,11 @@ class ExtractorService:
                 f"Ontologies disponibles: {available}."
             )
         
-        # Types de relations connus depuis l'ontologie
+        # Types depuis l'ontologie (entités et relations)
         ontology_relation_types = {
             rt.name.upper() for rt in ontology.relation_types
         } | self.BASE_RELATION_TYPES
+        ontology_entity_types = {et.name for et in ontology.entity_types}
         
         # Extraction séquentielle avec contexte cumulatif
         all_entities: List[ExtractedEntity] = []
@@ -466,7 +525,11 @@ class ExtractorService:
                     print(f"⚠️ [Extractor] Chunk {chunk_num}: réponse LLM vide", file=sys.stderr)
                     continue
                 
-                result = self._parse_extraction(content, known_relation_types=ontology_relation_types)
+                result = self._parse_extraction(
+                    content,
+                    known_relation_types=ontology_relation_types,
+                    known_entity_types=ontology_entity_types,
+                )
                 
                 print(f"✅ [Extractor] Chunk {chunk_num}: +{len(result.entities)} entités, "
                       f"+{len(result.relations)} relations", file=sys.stderr)
@@ -601,8 +664,7 @@ class ExtractorService:
         if entities:
             entity_lines = []
             for e in entities:
-                type_str = e.type.value if hasattr(e.type, 'value') else str(e.type)
-                entity_lines.append(f"- {e.name} ({type_str})")
+                entity_lines.append(f"- {e.name} ({e.type})")
             parts.append("ENTITÉS DÉJÀ EXTRAITES:\n" + "\n".join(entity_lines))
         
         # Liste compacte des relations (from --TYPE--> to)
