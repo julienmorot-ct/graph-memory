@@ -33,6 +33,10 @@ Développé par **[Cloud Temple](https://www.cloud-temple.com)**.
 
 > Historique complet : voir [CHANGELOG.md](CHANGELOG.md)
 
+### v1.2.2 — 17 février 2026 — 🔀 Fix HTTP 421 (reverse proxy)
+- 🔀 **Fix HTTP 421 "Invalid Host header"** — Le SDK MCP v1.26+ activait une protection DNS rebinding qui rejetait les requêtes derrière un reverse proxy. Fix : `FastMCP(host="0.0.0.0")` + `HostNormalizerMiddleware` comme ceinture de sécurité
+- 🐛 **Meilleur reporting d'erreur client** — `_extract_root_cause()` extrait le vrai message des TaskGroup/ExceptionGroup
+
 ### v1.2.1 — 17 février 2026 — 🐛 Fix CLI production
 - 🐛 **Fix CLI 401 sur serveur distant** — Variables `MCP_URL` / `MCP_TOKEN` prioritaires pour piloter un serveur de production sans conflit avec le `.env` local dev
 - 📖 **Documentation CLI production** — Guide complet pour utiliser la CLI depuis un poste distant (`scripts/README.md`, `DESIGN/DEPLOIEMENT_PRODUCTION.md` §15)
@@ -790,6 +794,12 @@ docker compose logs neo4j --tail 20
 docker compose exec mcp-memory env | grep -E "S3_|LLMAAS_|NEO4J_"
 ```
 
+### Erreur 421 Misdirected Request (derrière un reverse proxy)
+
+- **Cause** : le SDK MCP v1.26+ active une protection DNS rebinding quand `host="127.0.0.1"` (défaut). Le `Host` header public est rejeté.
+- **Fix** : vérifiez que `FastMCP` est initialisé avec `host="0.0.0.0"` (ou `settings.mcp_server_host`) dans `server.py`. Depuis v1.2.2, c'est le comportement par défaut.
+- **Vérification** : `curl -s -o /dev/null -w '%{http_code}' https://votre-domaine/sse` → ne doit PAS retourner 421.
+
 ### Erreur 401 Unauthorized
 
 - Vérifiez que votre token est valide
@@ -824,4 +834,4 @@ Développé par **[Cloud Temple](https://www.cloud-temple.com)**.
 
 ---
 
-*Graph Memory v1.2.1 — Février 2026*
+*Graph Memory v1.2.2 — Février 2026*

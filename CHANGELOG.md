@@ -12,8 +12,11 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 ### 🔀 Fix HTTP 421 — Connexion client à serveur distant (reverse proxy)
 
 #### Corrigé
-- **HTTP 421 "Invalid Host header" sur /sse et /messages** (`src/mcp_memory/auth/middleware.py`, `src/mcp_memory/server.py`) — Le MCP SDK (Starlette) rejetait les requêtes SSE provenant de reverse proxies (nginx → Caddy → MCP) car le `Host` header contenait le nom de domaine public (`graph-mem.mcp.cloud-temple.app`) au lieu de `localhost:8002`. Les routes `/api/*` fonctionnaient car interceptées par `StaticFilesMiddleware` avant d'atteindre Starlette, mais `/sse` et `/messages/*` échouaient systématiquement.
-  - **Fix** : Nouveau `HostNormalizerMiddleware` ASGI inséré entre `StaticFilesMiddleware` et `mcp.sse_app()`. Normalise le `Host` header vers `localhost` avant que la requête n'atteigne le MCP SDK. Log `🔀 [Host]` en mode debug.
+- **HTTP 421 "Invalid Host header" sur /sse et /messages** (`src/mcp_memory/server.py`, `src/mcp_memory/auth/middleware.py`) — Le SDK MCP Python v1.26+ (`FastMCP`) utilise `host="127.0.0.1"` par défaut. Quand host est localhost, le SDK active automatiquement `TransportSecurityMiddleware` avec `allowed_hosts=["127.0.0.1:*", "localhost:*"]`. Derrière un reverse proxy (nginx → Caddy → MCP), le `Host` header contient le domaine public (`graph-mem.mcp.cloud-temple.app`) → rejeté avec 421.
+  - **Cause racine** : `mcp/server/fastmcp/server.py` ligne 166 + `mcp/server/transport_security.py`
+  - **Fix principal** : `FastMCP(host=settings.mcp_server_host)` → `host="0.0.0.0"` n'est pas dans la liste `("127.0.0.1", "localhost", "::1")`, donc `TransportSecurityMiddleware` n'est pas activé.
+  - **Ceinture de sécurité** : Nouveau `HostNormalizerMiddleware` ASGI normalise le Host header vers `localhost` avant le MCP SDK. Log `🔀 [Host]`.
+  - Note : les routes `/api/*` n'étaient pas affectées car interceptées par `StaticFilesMiddleware` avant Starlette.
 
 #### Amélioré
 - **Messages d'erreur client** (`scripts/cli/client.py`) — Nouvelle méthode `_extract_root_cause()` qui descend récursivement dans les `ExceptionGroup`/`TaskGroup` pour extraire le vrai message d'erreur. Avant : message cryptique `"unhandled errors in a TaskGroup (1 sub-exception)"`. Après : message clair avec suggestion de diagnostic (`HostNormalizerMiddleware`, HTTP 421).
