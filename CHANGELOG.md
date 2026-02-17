@@ -21,8 +21,13 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 #### Amélioré
 - **Messages d'erreur client** (`scripts/cli/client.py`) — Nouvelle méthode `_extract_root_cause()` qui descend récursivement dans les `ExceptionGroup`/`TaskGroup` pour extraire le vrai message d'erreur. Avant : message cryptique `"unhandled errors in a TaskGroup (1 sub-exception)"`. Après : message clair avec suggestion de diagnostic (`HostNormalizerMiddleware`, HTTP 421).
 
+#### Corrigé
+- **Healthcheck Docker unhealthy en permanence** (`Dockerfile`, `docker-compose.yml`) — Le healthcheck ciblait `/sse` (endpoint SSE = flux infini). curl recevait le HTTP 200 puis attendait le flux → timeout (`--max-time 5`) → exit code 28 → Docker considérait le check comme échoué → unhealthy après 3 retries.
+  - **Fix** : On accepte désormais exit code 28 (timeout après connexion réussie) en plus de exit 0. Commande : `curl ... --max-time 2; rc=$?; [ $rc -eq 0 ] || [ $rc -eq 28 ]`.
+  - Appliqué dans le Dockerfile (pour les builds) ET dans docker-compose.yml (override immédiat, pas de rebuild nécessaire).
+
 #### Fichiers modifiés
-`src/mcp_memory/auth/middleware.py`, `src/mcp_memory/server.py`, `scripts/cli/client.py`, `VERSION`, `src/mcp_memory/__init__.py`
+`src/mcp_memory/auth/middleware.py`, `src/mcp_memory/server.py`, `scripts/cli/client.py`, `Dockerfile`, `docker-compose.yml`, `VERSION`, `src/mcp_memory/__init__.py`
 
 ---
 

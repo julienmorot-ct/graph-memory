@@ -115,6 +115,15 @@ services:
       # Server config
       - MCP_SERVER_DEBUG=${MCP_SERVER_DEBUG:-false}
       - ADMIN_BOOTSTRAP_KEY=${ADMIN_BOOTSTRAP_KEY}
+    healthcheck:
+      # /sse est un endpoint SSE (streaming infini) : curl reçoit le HTTP 200 puis
+      # timeout car le flux ne se ferme jamais → exit code 28.
+      # On accepte exit 0 (succès) OU exit 28 (timeout après connexion réussie) = healthy.
+      test: ["CMD-SHELL", "curl -sf http://localhost:8002/sse --max-time 2 -o /dev/null 2>/dev/null; rc=$$?; [ $$rc -eq 0 ] || [ $$rc -eq 28 ]"]
+      interval: 30s
+      timeout: 10s
+      start_period: 10s
+      retries: 3
     depends_on:
       neo4j:
         condition: service_healthy
