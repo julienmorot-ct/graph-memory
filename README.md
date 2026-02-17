@@ -33,6 +33,11 @@ Développé par **[Cloud Temple](https://www.cloud-temple.com)**.
 
 > Historique complet : voir [CHANGELOG.md](CHANGELOG.md)
 
+### v1.2.4 — 17 février 2026 — 🔧 Factorisation CLI Click / Shell
+- 🔧 **Code unifié** — `commands.py` (Click) et `shell.py` (Interactif) partagent désormais la même logique d'affichage et de progression (`ingest_progress.py`, `display.py`).
+- 📊 **Progression ingestion unifiée** — Le shell interactif bénéficie des barres de progression riches et du parsing SSE temps réel (alignement v1.2.3).
+- 🧹 **Nettoyage** — ~300 lignes de duplication supprimées, maintenance simplifiée.
+
 ### v1.2.2 — 17 février 2026 — 🔀 Fix HTTP 421 (reverse proxy)
 - 🔀 **Fix HTTP 421 "Invalid Host header"** — Le SDK MCP v1.26+ activait une protection DNS rebinding qui rejetait les requêtes derrière un reverse proxy. Fix : `FastMCP(host="0.0.0.0")` + `HostNormalizerMiddleware` comme ceinture de sécurité
 - 🐛 **Meilleur reporting d'erreur client** — `_extract_root_cause()` extrait le vrai message des TaskGroup/ExceptionGroup
@@ -834,4 +839,4 @@ Développé par **[Cloud Temple](https://www.cloud-temple.com)**.
 
 ---
 
-*Graph Memory v1.2.2 — Février 2026*
+*Graph Memory v1.2.4 — Février 2026*
