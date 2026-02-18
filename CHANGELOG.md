@@ -1,5 +1,58 @@
 # Changelog
 
+## [1.3.4] - 2026-02-18
+
+### CLI — Progression temps réel pour ingestdir + Fix parsing --exclude
+
+**Alignement UX** : `ingestdir` (batch) affiche maintenant la même progression temps réel que `ingest` (unitaire) pour chaque fichier ingéré. Appliqué dans les deux interfaces (Shell interactif et CLI Click).
+
+**Corrigé** :
+- **Parser `--exclude` cassé dans le shell** — L'ancien parser artisanal (recherche de sous-chaîne dans la ligne brute) avait 3 bugs :
+  1. **Typos d'options non détectées** : `--excluse` restait collé au chemin du répertoire → `os.path.isdir("DOCS --excluse ...")` → erreur
+  2. **Guillemets non strippés** : `"llmaas/licences/*"` passé tel quel à `fnmatch` (avec les `"`) → aucun match
+  3. **Options inconnues silencieuses** : tout ce qui n'est pas reconnu finissait dans le chemin
+- **Fix** : réécriture complète avec `shlex.split()` (parsing POSIX des guillemets) + itération par tokens avec détection d'options inconnues → message d'erreur clair
+
+**Amélioré** :
+- **Progression temps réel par fichier** (`run_ingest_with_progress`) : chaque fichier du batch affiche barres ASCII extraction LLM (`█████░░░░░ 50%`), embedding, compteurs entités/relations, timer `⏱ mm:ss`
+- **Header enrichi par fichier** : `[3/15] 📥 bastion/concepts.md (12.4 KB)` (numéro, chemin relatif, taille)
+- **Résumé par fichier** : `✅ concepts.md: 12+3 entités, 8+2 relations (45.2s)` (new+merged, durée)
+- **Autocomplétion shell** : `--exclude` et `--confirm` ajoutés à `SHELL_COMMANDS`
+- **CLI Click non affectée** : Click gère nativement `@click.option("--exclude", multiple=True)`
+
+**Fichiers modifiés** : `scripts/cli/shell.py`, `scripts/cli/commands.py`, `VERSION`, `src/mcp_memory/__init__.py`
+
+---
+
+## [1.3.3] - 2026-02-18
+
+### Ontologie cloud.yaml v1.1 — Couverture fiches produits et documentation technique
+
+**Audit et enrichissement** de l'ontologie `cloud.yaml` après confrontation avec le contenu réel de ~30 documents `DOCS/` et ~15 fiches produits `PRODUCT/`.
+
+**Ajouté** :
+- **+4 types d'entités** (20→24) : `PricingModel` (tarification omniprésente dans PRODUCT), `StorageClass` (5 classes IOPS Cloud Temple), `BackupSolution` (IBM SPP, VMware Replication, Global Mirror), `AIModel` (LLMaaS, modèles IA)
+- **+5 types de relations** (14→19) : `COMPATIBLE_WITH`, `SUPPORTS`, `PART_OF`, `DEPENDS_ON`, `HAS_PRICING` — aligné avec les patterns des autres ontologies
+- **`priority: high`** ajouté sur `CloudService` et `Technology` (en plus de `Certification` et `SLA`)
+- **`priority_entities`** enrichi : +`StorageClass`, +`PricingModel`
+- **+1 exemple d'extraction** basé fiche produit (Bastion, StorageClass, pricing, backup)
+- **Contexte LLM enrichi** : consignes spécifiques pour fiches produits (tarification, compatibilités, modèles IA)
+- **Exemples d'entités enrichis** : noms réels Cloud Temple (PAR7S, TH3S, Cisco UCS B200, Intel Xeon Gold, Thales Luna S790, ISAE 3402, XCP-ng, etc.)
+
+**Nettoyé** :
+- Suppression de 4 champs `extraction_rules` non reconnus par le code (`include_metrics`, `include_durations`, `include_amounts`, `extract_implicit_relations`)
+- Suppression du script `scripts/validate_ontology.py` (utilitaire ponctuel, validation terminée)
+
+**Validé en conditions réelles** (ingestion de 2 fiches produits) :
+- IaaS VMware (13.6 KB) : **40 entités, 52 relations, 0 "Other"** — StorageClass:6, PricingModel:1, BackupSolution:1 ✅
+- LLMaaS (19.5 KB) : **33 entités, 36 relations, 2 "Other" (6%)** — AIModel:6, PricingModel:4 ✅
+- **Total : 73 entités, 97.3% correctement typées**, 18/24 types utilisés, 88 relations
+
+**Fichiers modifiés** : `ONTOLOGIES/cloud.yaml` (v1.0→v1.1), `VERSION`, `src/mcp_memory/__init__.py`
+**Fichiers supprimés** : `scripts/validate_ontology.py`
+
+---
+
 ## [1.3.2] - 2026-02-18
 
 ### Refactoring — L'ontologie est la seule source de vérité pour les types d'entités

@@ -2,14 +2,17 @@
 # Ontologie Cloud Infrastructure
 # =============================================================================
 # Spécialisée pour l'extraction d'informations depuis des documents
-# liés à l'infrastructure cloud, datacenters, certifications, services cloud.
+# liés à l'infrastructure cloud, datacenters, certifications, services cloud,
+# fiches produits et documentation technique Cloud Temple.
 
 name: cloud
-version: "1.0"
+version: "1.1"
 description: |
   Ontologie spécialisée pour les documents d'infrastructure cloud.
   Optimisée pour extraire les services cloud, architectures, certifications,
-  zones de disponibilité, configurations et indicateurs de performance.
+  zones de disponibilité, configurations, indicateurs de performance,
+  tarification et classes de stockage.
+  Couvre les fiches produits (PRODUCT) et la documentation technique (DOCS).
 
 # Instructions spécifiques pour le LLM
 context: |
@@ -22,8 +25,14 @@ context: |
   - Les indicateurs de performance et SLA
   - Les technologies utilisées (hyperviseurs, orchestrateurs, etc.)
   - Les aspects de sécurité et conformité
+  - Les classes de stockage et leurs niveaux de performance
+  - Les solutions de sauvegarde et réplication
+  - Les modèles de tarification et unités de consommation
+  - Les modèles d'IA et services associés (LLMaaS, GPU)
   
   IMPORTANT: Sois précis sur les spécifications techniques et les certifications.
+  Pour les fiches produits, extrais systématiquement la tarification, les SLA
+  et les compatibilités entre services.
 
 # =============================================================================
 # Types d'entités spécifiques au domaine Cloud
@@ -32,34 +41,43 @@ entity_types:
   # Services Cloud
   - name: CloudService
     description: Service cloud (IaaS, PaaS, SaaS)
+    priority: high
     examples:
       - "Infrastructure IaaS SecNumCloud"
       - "Kubernetes as a Service"
       - "Object Storage S3"
       - "Database as a Service"
+      - "LLMaaS (Large Language Model as a Service)"
+      - "Bastion (accès sécurisé)"
 
   - name: ServiceTier
-    description: Niveau de service, offre
+    description: Niveau de service, offre, gamme
     examples:
       - "Offre Standard"
       - "Offre Premium"
       - "Compute Standard"
       - "Storage Performance"
+      - "ECO v3"
+      - "ADVANCE v3"
+      - "PERFORMANCE 1 v3"
 
   # Infrastructure
   - name: Datacenter
     description: Centre de données, site d'hébergement
     examples:
-      - "DC Paris (PAR1)"
-      - "Datacenter Equinix PA3"
+      - "DC Paris (PAR7S)"
+      - "DC Lyon (TH3S)"
       - "Site de Nanterre"
+      - "Datacenter AZ07"
 
   - name: AvailabilityZone
     description: Zone de disponibilité
     examples:
       - "AZ-FR1"
       - "Zone A"
-      - "Region eu-west-3"
+      - "PAR7S"
+      - "TH3S"
+      - "AZ07"
 
   - name: Region
     description: Région géographique cloud
@@ -70,18 +88,23 @@ entity_types:
 
   # Technologies
   - name: Technology
-    description: Technologie, produit technique
+    description: Technologie, produit technique, composant logiciel
+    priority: high
     examples:
       - "VMware vSphere 8"
       - "Kubernetes 1.28"
       - "NetApp ONTAP"
       - "Cisco ACI"
+      - "IBM FlashSystem"
+      - "IBM Spectrum Virtualize"
+      - "Terraform"
 
   - name: Hypervisor
     description: Hyperviseur, plateforme de virtualisation
     examples:
       - "VMware ESXi 8.0"
       - "KVM/QEMU"
+      - "XCP-ng (Xen)"
       - "Microsoft Hyper-V"
 
   - name: Orchestrator
@@ -90,6 +113,7 @@ entity_types:
       - "Kubernetes"
       - "OpenShift 4.14"
       - "Docker Swarm"
+      - "Rancher"
 
   - name: NetworkComponent
     description: Composant réseau
@@ -98,23 +122,39 @@ entity_types:
       - "Firewall Fortinet"
       - "VPN IPSec"
       - "SD-WAN"
+      - "Juniper networking"
+      - "VPLS"
 
   # Spécifications
   - name: ComputeSpec
-    description: Spécification de calcul (CPU, RAM)
+    description: Spécification de calcul (CPU, RAM, lame serveur)
     examples:
       - "8 vCPU"
       - "32 Go RAM"
-      - "vCPU Intel Xeon"
-      - "Instance m5.xlarge"
+      - "Intel Xeon Gold 6354"
+      - "Cisco UCS B200 M5"
+      - "NVIDIA L40S"
+      - "NVIDIA H100"
 
   - name: StorageSpec
-    description: Spécification de stockage
+    description: Spécification de stockage (capacité, technologie)
     examples:
       - "1 To SSD NVMe"
       - "Block Storage"
       - "Object Storage"
       - "IOPS 10000"
+      - "Fiber Channel 32G"
+      - "Distributed RAID 6"
+
+  - name: StorageClass
+    description: Classe de performance stockage (niveau IOPS/To)
+    examples:
+      - "ECO 500 IOPS/To"
+      - "Standard 1500 IOPS/To"
+      - "Premium 3000 IOPS/To"
+      - "Enterprise 7500 IOPS/To"
+      - "Ultra 15000 IOPS/To"
+      - "Mass Storage"
 
   - name: NetworkSpec
     description: Spécification réseau
@@ -134,6 +174,8 @@ entity_types:
       - "HDS"
       - "SOC 2 Type II"
       - "PCI DSS"
+      - "ISAE 3402 Type II"
+      - "Common Criteria EAL4+"
 
   - name: SecurityFeature
     description: Fonctionnalité de sécurité
@@ -141,15 +183,19 @@ entity_types:
       - "Chiffrement AES-256"
       - "MFA obligatoire"
       - "HSM (Hardware Security Module)"
-      - "Backup chiffré"
+      - "Thales Luna S790"
+      - "KMS / BYOK"
+      - "Chiffrement XTS-AES 256"
 
   - name: ComplianceFramework
-    description: Cadre de conformité
+    description: Cadre de conformité réglementaire
     examples:
       - "RGPD"
       - "DORA"
       - "NIS2"
       - "ANSSI PAMS"
+      - "HIPAA"
+      - "Data Act"
 
   # Performance et SLA
   - name: SLA
@@ -168,6 +214,37 @@ entity_types:
       - "Latence P99 < 10ms"
       - "Throughput 1 Gbps"
       - "IOPS 50000"
+      - "50 équipements par appliance"
+
+  # Tarification
+  - name: PricingModel
+    description: Modèle de tarification, unité de consommation, prix
+    examples:
+      - "Facturation à l'heure"
+      - "Unité de consommation: vCPU/mois"
+      - "Pack 3 Bastion: 1290€/mois"
+      - "Stockage 0,06€/Go/mois"
+      - "Engagement annuel -15%"
+
+  # Sauvegarde et réplication
+  - name: BackupSolution
+    description: Solution de sauvegarde ou de réplication
+    examples:
+      - "IBM Spectrum Protect Plus"
+      - "VMware Replication"
+      - "Global Mirror"
+      - "Metro Mirror"
+      - "Veeam Backup"
+
+  # IA et Machine Learning
+  - name: AIModel
+    description: Modèle d'intelligence artificielle
+    examples:
+      - "Mistral Large 2"
+      - "Llama 3.1 70B"
+      - "DeepSeek R1 671B"
+      - "bge-m3 (embedding)"
+      - "Qwen 2.5 Coder"
 
   # Organisations
   - name: CloudProvider
@@ -179,20 +256,24 @@ entity_types:
       - "OVHcloud"
 
   - name: Organization
-    description: Organisation cliente ou partenaire
+    description: Organisation cliente, partenaire ou régulatrice
     examples:
       - "ANSSI"
       - "CNIL"
       - "Ministère de la Santé"
+      - "Cisco"
+      - "IBM"
+      - "VMware"
 
   # API et Interfaces
   - name: API
-    description: Interface de programmation
+    description: Interface de programmation ou console de gestion
     examples:
       - "API REST v2"
       - "Console Shiva"
       - "API OpenStack"
       - "Terraform Provider"
+      - "API S3 compatible"
 
 # =============================================================================
 # Types de relations spécifiques au domaine Cloud
@@ -231,7 +312,7 @@ relation_types:
       - "Kubernetes → REQUIRES → Load Balancer"
 
   - name: INCLUDES
-    description: Inclut un composant
+    description: Inclut un composant ou une fonctionnalité
     examples:
       - "Offre Premium → INCLUDES → Backup automatique"
 
@@ -251,12 +332,12 @@ relation_types:
       - "Service → COMPLIANT_WITH → RGPD"
 
   - name: HAS_SPEC
-    description: Possède une spécification
+    description: Possède une spécification technique
     examples:
       - "VM Large → HAS_SPEC → 16 vCPU, 64 Go RAM"
 
   - name: MANAGED_BY
-    description: Géré par un composant/outil
+    description: Géré par un composant/outil/console
     examples:
       - "Cluster → MANAGED_BY → Console Shiva"
 
@@ -266,9 +347,46 @@ relation_types:
       - "Données → BACKUP_TO → Object Storage"
 
   - name: INTEGRATED_WITH
-    description: Intégré avec
+    description: Intégré avec un service ou outil
     examples:
       - "Kubernetes → INTEGRATED_WITH → Prometheus"
+
+  # === Nouvelles relations v1.1 ===
+
+  - name: COMPATIBLE_WITH
+    description: Compatible avec un outil, format ou service
+    examples:
+      - "Object Storage → COMPATIBLE_WITH → API S3"
+      - "IaaS VMware → COMPATIBLE_WITH → Terraform"
+      - "Managed K8s → COMPATIBLE_WITH → Helm"
+
+  - name: SUPPORTS
+    description: Supporte un protocole, format ou fonctionnalité
+    examples:
+      - "Bastion → SUPPORTS → RDP, SSH"
+      - "Block Storage → SUPPORTS → Fiber Channel 32G"
+      - "Console Shiva → SUPPORTS → API REST"
+
+  - name: PART_OF
+    description: Fait partie de (hiérarchie de composition)
+    examples:
+      - "AZ PAR7S → PART_OF → Region FR1"
+      - "Block Storage → PART_OF → IaaS VMware"
+      - "StorageClass Premium → PART_OF → Block Storage"
+
+  - name: DEPENDS_ON
+    description: Dépend d'un autre service ou composant
+    examples:
+      - "Managed Kubernetes → DEPENDS_ON → Block Storage"
+      - "Bastion recording → DEPENDS_ON → Object Storage"
+      - "VM encryption → DEPENDS_ON → HSM"
+
+  - name: HAS_PRICING
+    description: Possède un modèle de tarification
+    examples:
+      - "IaaS VMware → HAS_PRICING → Facturation vCPU/heure"
+      - "Object Storage → HAS_PRICING → 0.06€/Go/mois"
+      - "Bastion → HAS_PRICING → Pack 3: 1290€/mois"
 
 # =============================================================================
 # Règles d'extraction spécifiques
@@ -276,18 +394,16 @@ relation_types:
 extraction_rules:
   max_entities: 60
   max_relations: 80
-  include_metrics: true
-  include_durations: true
-  include_amounts: true
-  extract_implicit_relations: true
   
   priority_entities:
     - CloudService
     - Certification
     - SLA
-    - Datacenter
     - Technology
+    - Datacenter
     - SecurityFeature
+    - StorageClass
+    - PricingModel
 
   special_instructions: |
     - Identifie TOUTES les certifications mentionnées avec leur version si disponible
@@ -296,6 +412,11 @@ extraction_rules:
     - Note les spécifications techniques (CPU, RAM, stockage, réseau)
     - Identifie les zones de disponibilité et régions
     - Distingue les services IaaS, PaaS, SaaS
+    - Extrais les classes de stockage avec leurs niveaux d'IOPS
+    - Identifie les solutions de sauvegarde et réplication (IBM SPP, VMware Replication, etc.)
+    - Pour les fiches produits : extrais la tarification (prix, unités, packs)
+    - Pour les fiches produits : identifie les compatibilités et dépendances entre services
+    - Pour les modèles IA (LLMaaS) : extrais le nom du modèle, sa taille, ses capacités
 
 # =============================================================================
 # Exemples d'extraction
@@ -322,3 +443,33 @@ examples:
       - {from: "Cloud Temple", to: "SecNumCloud 3.2", type: "CERTIFIED_FOR"}
       - {from: "Compute Standard", to: "VMware vSphere 8", type: "USES_TECHNOLOGY"}
       - {from: "Compute Standard", to: "Disponibilité 99.95%", type: "HAS_SLA"}
+
+  - input: |
+      Le service Bastion Cloud Temple permet un accès sécurisé via RDP et SSH
+      aux infrastructures hébergées. Disponible en pack de 3 appliances
+      à 1290€/mois. Le stockage Block Storage propose 5 classes de performance :
+      ECO (500 IOPS/To), Standard (1500), Premium (3000), Enterprise (7500)
+      et Ultra (15000 IOPS/To). La sauvegarde est assurée par IBM Spectrum
+      Protect Plus avec un RPO de 24 heures. Le service est compatible Terraform.
+    expected_entities:
+      - {name: "Bastion", type: "CloudService"}
+      - {name: "Cloud Temple", type: "CloudProvider"}
+      - {name: "Pack 3 Bastion: 1290€/mois", type: "PricingModel"}
+      - {name: "Block Storage", type: "CloudService"}
+      - {name: "ECO 500 IOPS/To", type: "StorageClass"}
+      - {name: "Standard 1500 IOPS/To", type: "StorageClass"}
+      - {name: "Premium 3000 IOPS/To", type: "StorageClass"}
+      - {name: "Enterprise 7500 IOPS/To", type: "StorageClass"}
+      - {name: "Ultra 15000 IOPS/To", type: "StorageClass"}
+      - {name: "IBM Spectrum Protect Plus", type: "BackupSolution"}
+      - {name: "RPO 24 heures", type: "SLA"}
+      - {name: "Terraform", type: "Technology"}
+    expected_relations:
+      - {from: "Cloud Temple", to: "Bastion", type: "PROVIDES"}
+      - {from: "Bastion", to: "Pack 3 Bastion: 1290€/mois", type: "HAS_PRICING"}
+      - {from: "Bastion", to: "RDP", type: "SUPPORTS"}
+      - {from: "Bastion", to: "SSH", type: "SUPPORTS"}
+      - {from: "ECO 500 IOPS/To", to: "Block Storage", type: "PART_OF"}
+      - {from: "Block Storage", to: "IBM Spectrum Protect Plus", type: "BACKUP_TO"}
+      - {from: "IBM Spectrum Protect Plus", to: "RPO 24 heures", type: "HAS_SLA"}
+      - {from: "Bastion", to: "Terraform", type: "COMPATIBLE_WITH"}

@@ -33,6 +33,11 @@ Développé par **[Cloud Temple](https://www.cloud-temple.com)**.
 
 > Historique complet : voir [CHANGELOG.md](CHANGELOG.md)
 
+### v1.3.3 — 18 février 2026 — ☁️ Ontologie cloud.yaml v1.1
+- ☁️ **Ontologie cloud v1.1** — +4 entités (PricingModel, StorageClass, BackupSolution, AIModel) + 5 relations (COMPATIBLE_WITH, SUPPORTS, PART_OF, DEPENDS_ON, HAS_PRICING). 24 entités / 19 relations au total.
+- ✅ **Validé sur 2 fiches produits** — 73 entités extraites, 97.3% correctement typées (2 "Other" sur 73)
+- 🧹 Suppression du script utilitaire `validate_ontology.py`
+
 ### v1.3.0 — 17 février 2026 — 🧠 Ontologie Presales + Uniformisation des limites
 - ✨ **Nouvelle ontologie `presales`** — 28 types d'entités (6 familles) + 30 types de relations (5 familles) pour l'analyse de documents avant-vente (RFP, RFI, propositions commerciales, études de cas)
 - 📐 **Uniformisation des limites d'extraction** — Toutes les ontologies passent à `max_entities: 60` / `max_relations: 80` (précédemment 30/40 par défaut, ou 50/60 pour certaines)
@@ -499,7 +504,7 @@ Les ontologies définissent les **types d'entités** et **types de relations** q
 | Ontologie          | Fichier                            | Entités  | Relations | Usage                                            |
 | ------------------ | ---------------------------------- | -------- | --------- | ------------------------------------------------ |
 | `legal`            | `ONTOLOGIES/legal.yaml`            | 22 types | 22 types  | Documents juridiques, contrats                   |
-| `cloud`            | `ONTOLOGIES/cloud.yaml`            | 20 types | 14 types  | Infrastructure cloud                             |
+| `cloud`            | `ONTOLOGIES/cloud.yaml`            | 24 types | 19 types  | Infrastructure cloud, fiches produits, docs techniques |
 | `managed-services` | `ONTOLOGIES/managed-services.yaml` | 20 types | 16 types  | Services managés, infogérance                    |
 | `technical`        | `ONTOLOGIES/technical.yaml`        | 27 types | 16 types  | Documentation technique, API                     |
 | `presales`         | `ONTOLOGIES/presales.yaml`         | 28 types | 30 types  | Avant-vente, RFP/RFI, propositions commerciales  |
@@ -733,7 +738,7 @@ graph-memory/
 │
 ├── ONTOLOGIES/               # Ontologies d'extraction
 │   ├── legal.yaml            # Documents juridiques (22 entités, 22 relations)
-│   ├── cloud.yaml            # Infrastructure cloud (20 entités, 14 relations)
+│   ├── cloud.yaml            # Infrastructure cloud (24 entités, 19 relations) [v1.1]
 │   ├── managed-services.yaml # Services managés (20 entités, 16 relations)
 │   ├── technical.yaml        # Documentation technique (27 entités, 16 relations)
 │   └── presales.yaml         # Avant-vente / RFP (28 entités, 30 relations) [v1.3.0]
@@ -848,4 +853,4 @@ Développé par **[Cloud Temple](https://www.cloud-temple.com)**.
 
 ---
 
-*Graph Memory v1.3.0 — Février 2026*
+*Graph Memory v1.3.3 — Février 2026*

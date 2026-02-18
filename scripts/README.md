@@ -303,7 +303,7 @@ Fonctionnalités :
 | ------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
 | `docs`             | Lister les documents                                                                                                           |
 | `ingest <path>`    | Ingérer un fichier (`--force` pour ré-ingérer). Passe automatiquement `source_path` et `source_modified_at`.                   |
-| `ingestdir <path>` | Ingérer un répertoire (`--exclude`, `--confirm`, `--force`). Passe `source_path` (relatif) + `source_modified_at` par fichier. |
+| `ingestdir <path>` | Ingérer un répertoire (`--exclude PATTERN`, `--confirm`, `--force`). Progression temps réel par fichier. Passe `source_path` (relatif) + `source_modified_at` par fichier. |
 | `deldoc <id>`      | Supprimer un document                                                                                                          |
 
 #### Exploration
@@ -467,4 +467,4 @@ pip install httpx httpx-sse click rich prompt_toolkit
 
 ---
 
-*Graph Memory CLI v1.2.4 — Février 2026*
+*Graph Memory CLI v1.3.4 — Février 2026*

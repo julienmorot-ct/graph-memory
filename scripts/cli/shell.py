@@ -71,7 +71,7 @@ SHELL_COMMANDS = [
     "tokens", "token-create", "token-revoke", "token-grant",
     "token-ungrant", "token-set",
     "limit", "delete", "debug", "clear", "exit", "quit",
-    "--json", "--include-documents", "--force",
+    "--json", "--include-documents", "--force", "--exclude", "--confirm",
     "backup", "backup-create", "backup-list", "backup-restore",
     "backup-download", "backup-delete",
 ]
@@ -536,10 +536,15 @@ async def cmd_ingestdir(client: MCPClient, state: dict, args: str):
     """
     Ingère un répertoire entier dans la mémoire courante (récursif).
     
-    Usage: ingestdir <chemin> [--exclude PATTERN] [--confirm] [--force]
-    Exemple: ingestdir ./MATIERE/JURIDIQUE --exclude *.tmp
+    Usage: ingestdir <chemin> [--exclude PATTERN]... [--confirm] [--force]
+    
+    Exemples:
+        ingestdir ./DOCS
+        ingestdir DOCS --exclude "llmaas/licences/*" --exclude "*changelog*"
+        ingestdir DOCS --exclude "*.tmp" --force
     """
     import fnmatch
+    import shlex
     from pathlib import Path
     from rich.prompt import Confirm
 
@@ -550,31 +555,46 @@ async def cmd_ingestdir(client: MCPClient, state: dict, args: str):
         show_warning("Sélectionnez une mémoire avec 'use <id>' avant d'ingérer")
         return
     if not args:
-        show_warning("Usage: ingestdir <chemin> [--exclude PATTERN] [--confirm] [--force]")
+        show_warning("Usage: ingestdir <chemin> [--exclude PATTERN]... [--confirm] [--force]")
         return
 
-    # Parser les options depuis la ligne de commande brute
-    confirm_mode = "--confirm" in args
-    force_mode = "--force" in args
-    
-    # Extraire les patterns d'exclusion
+    # Parser robuste avec shlex (gère les guillemets et espaces)
+    try:
+        tokens = shlex.split(args)
+    except ValueError as e:
+        show_error(f"Erreur de syntaxe dans la commande: {e}")
+        return
+
+    confirm_mode = False
+    force_mode = False
     exclude_patterns = []
-    remaining = args
-    while "--exclude" in remaining:
-        idx = remaining.index("--exclude")
-        after = remaining[idx + 9:].strip()
-        parts = after.split(maxsplit=1)
-        if parts:
-            exclude_patterns.append(parts[0])
-            remaining = remaining[:idx] + (parts[1] if len(parts) > 1 else "")
-        else:
-            remaining = remaining[:idx]
+    positional = []
     
-    # Nettoyer le chemin
-    dir_path = remaining.replace("--confirm", "").replace("--force", "").strip()
+    i = 0
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok == "--confirm":
+            confirm_mode = True
+        elif tok == "--force":
+            force_mode = True
+        elif tok == "--exclude":
+            if i + 1 < len(tokens):
+                i += 1
+                exclude_patterns.append(tokens[i])
+            else:
+                show_warning("--exclude nécessite un PATTERN (ex: --exclude '*.tmp')")
+                return
+        elif tok.startswith("--"):
+            show_error(f"Option inconnue: {tok}. Options valides: --exclude, --confirm, --force")
+            return
+        else:
+            positional.append(tok)
+        i += 1
+    
+    dir_path = positional[0] if positional else ""
     
     if not dir_path:
-        show_warning("Usage: ingestdir <chemin> [--exclude PATTERN] [--confirm] [--force]")
+        show_warning("Usage: ingestdir <chemin> [--exclude PATTERN]... [--confirm] [--force]")
         return
     
     if not os.path.isdir(dir_path):
@@ -667,7 +687,9 @@ async def cmd_ingestdir(client: MCPClient, state: dict, args: str):
                 skipped += 1
                 continue
 
-        console.print(f"[dim][{i}/{len(to_ingest)}] 📥 {f['filename']}...[/dim]")
+        file_size = f["size"]
+        file_ext = f["filename"].lower().rsplit('.', 1)[-1] if '.' in f["filename"] else '?'
+        console.print(f"\n[bold cyan][{i}/{len(to_ingest)}][/bold cyan] 📥 [bold]{f['rel_path']}[/bold] ({format_size(file_size)})")
         try:
             from datetime import datetime, timezone
 
@@ -679,7 +701,8 @@ async def cmd_ingestdir(client: MCPClient, state: dict, args: str):
             mtime = os.path.getmtime(f["path"])
             source_modified_at = datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat()
 
-            result = await client.call_tool("memory_ingest", {
+            # Progression temps réel (même UX que ingest unitaire)
+            result = await run_ingest_with_progress(client, {
                 "memory_id": mem,
                 "content_base64": content_b64,
                 "filename": f["filename"],
@@ -689,9 +712,17 @@ async def cmd_ingestdir(client: MCPClient, state: dict, args: str):
             })
 
             if result.get("status") == "ok":
-                e_total = result.get("entities_created", 0) + result.get("entities_merged", 0)
-                r_total = result.get("relations_created", 0) + result.get("relations_merged", 0)
-                console.print(f"  [green]✅[/green] {f['filename']}: {e_total} entités, {r_total} relations")
+                elapsed = result.get("_elapsed_seconds", 0)
+                e_new = result.get("entities_created", 0)
+                e_merged = result.get("entities_merged", 0)
+                r_new = result.get("relations_created", 0)
+                r_merged = result.get("relations_merged", 0)
+                console.print(
+                    f"  [green]✅[/green] {f['filename']}: "
+                    f"[cyan]{e_new}+{e_merged}[/cyan] entités, "
+                    f"[cyan]{r_new}+{r_merged}[/cyan] relations "
+                    f"[dim]({elapsed}s)[/dim]"
+                )
                 ingested += 1
             elif result.get("status") == "already_exists":
                 console.print(f"  [yellow]⏭️[/yellow] {f['filename']}: déjà ingéré")

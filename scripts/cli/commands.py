@@ -556,7 +556,8 @@ def document_ingest_dir(ctx, memory_id, directory, exclude, confirm, force):
                         skipped += 1
                         continue
 
-                console.print(f"[dim][{i}/{len(to_ingest)}] 📥 {f['filename']}...[/dim]")
+                file_size_str = format_size(f["size"])
+                console.print(f"\n[bold cyan][{i}/{len(to_ingest)}][/bold cyan] 📥 [bold]{f['rel_path']}[/bold] ({file_size_str})")
 
                 try:
                     from datetime import datetime, timezone
@@ -569,7 +570,8 @@ def document_ingest_dir(ctx, memory_id, directory, exclude, confirm, force):
                     mtime = os.path.getmtime(f["path"])
                     source_modified_at = datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat()
 
-                    result = await client.call_tool("memory_ingest", {
+                    # Progression temps réel (même UX que document ingest unitaire)
+                    result = await run_ingest_with_progress(client, {
                         "memory_id": memory_id,
                         "content_base64": content_b64,
                         "filename": f["filename"],
@@ -579,6 +581,7 @@ def document_ingest_dir(ctx, memory_id, directory, exclude, confirm, force):
                     })
 
                     if result.get("status") == "ok":
+                        elapsed = result.get("_elapsed_seconds", 0)
                         e_new = result.get("entities_created", 0)
                         e_merged = result.get("entities_merged", 0)
                         r_new = result.get("relations_created", 0)
@@ -586,7 +589,8 @@ def document_ingest_dir(ctx, memory_id, directory, exclude, confirm, force):
                         console.print(
                             f"  [green]✅[/green] {f['filename']}: "
                             f"[cyan]{e_new}+{e_merged}[/cyan] entités, "
-                            f"[cyan]{r_new}+{r_merged}[/cyan] relations"
+                            f"[cyan]{r_new}+{r_merged}[/cyan] relations "
+                            f"[dim]({elapsed}s)[/dim]"
                         )
                         ingested += 1
                     elif result.get("status") == "already_exists":
