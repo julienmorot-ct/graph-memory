@@ -1,0 +1,539 @@
+# =============================================================================
+# Ontologie Générique (General Purpose Knowledge Base)
+# =============================================================================
+# Ontologie universelle pour tout document ne rentrant pas dans les ontologies
+# spécialisées (legal, cloud_products, presales, technical, managed-services).
+# Optimisée pour : FAQs, référentiels, certifications, RSE, specs produits,
+# knowledge bases, RFI/RFP, indicateurs, références clients.
+
+name: general
+version: "1.0"
+description: |
+  Ontologie générique pour l'extraction d'informations depuis tout type de document
+  professionnel : FAQ, référentiels normatifs, fiches produits partenaires,
+  bilans RSE, knowledge bases Q&A, indicateurs de performance.
+  
+  Conçue comme filet de sécurité intelligent : types larges mais significatifs,
+  mappings stricts pour éviter les entités "Other".
+
+context: |
+  Tu es un expert en extraction de connaissances pour des documents professionnels variés.
+  Tu dois identifier les entités clés et leurs relations dans des documents hétérogènes :
+  FAQs, référentiels, certifications, bilans environnementaux, specs techniques, etc.
+
+  ⚠️ RÈGLES CRITIQUES D'EXTRACTION :
+
+  1. QUESTIONS & RÉPONSES : Si le document est structuré en Q&A ou FAQ,
+     extrais chaque question comme une entité Question et sa réponse comme Answer.
+     Lie-les TOUJOURS avec la relation ANSWERS.
+
+  2. PRÉCISION DES VALEURS : Extrais les métriques exactes avec unités.
+     ✅ Bon : "99.99%", "2 133 tCO2e", "0.9€/million tokens", "42 Gbps"
+     ❌ Mauvais : "haute disponibilité", "faible empreinte carbone"
+
+  3. INDICATEURS & CIBLES : Pour les KPI, extrais TOUJOURS la valeur actuelle
+     ET l'objectif si disponible. Intègre les deux dans le nom de l'entité.
+     Ex: "NPS 42 (2024, objectif 50 en 2025)" et non "NPS" seul.
+
+  4. RÉFÉRENCES CLIENTS : Intègre budget, durée et secteur dans le nom.
+     Ex: "SUEZ (3.8M€/an, 15 ans, Eau/Déchets)" et non "SUEZ" seul.
+
+  5. SPECS PRODUITS : Pour les matrices de produits (Fortinet, serveurs, etc.),
+     chaque modèle est un ProductModel avec ses Specifications.
+     Ne crée PAS une entité par valeur technique isolée.
+
+  6. COUVERTURE FAQ : Si une réponse indique "Disponible: Oui/Non" et
+     "Couverture: Intégralement/Partiellement", intègre ces infos dans l'Answer.
+
+# =============================================================================
+# TYPES D'ENTITÉS (24 types, 5 familles)
+# =============================================================================
+entity_types:
+
+  # ---------------------------------------------------------------------------
+  # 📚 FAMILLE 1 : CONNAISSANCE & CONTENU
+  # ---------------------------------------------------------------------------
+  - name: Topic
+    description: Sujet, thème ou domaine de connaissance
+    examples:
+      - "Réseau (section 2.1.1)"
+      - "Stockage objet (section 2.1.2)"
+      - "Gestion des identités et accès"
+      - "Impact environnemental"
+      - "Quantisation des LLM"
+
+  - name: Question
+    description: Question posée, exigence formulée ou point d'interrogation
+    priority: high
+    examples:
+      - "Pilotage des équipements réseaux : segmentation ?"
+      - "Date de la qualification SNC (obtenue ou estimée) ?"
+      - "Quel modèle Fortinet pour 100k sessions ?"
+      - "Quelle est la relation entre ATOS et Cloud Temple ?"
+
+  - name: Answer
+    description: Réponse structurée à une question (inclut disponibilité et couverture si FAQ)
+    priority: high
+    examples:
+      - "Disponible: Oui, Intégralement — Segmentation via VLANs Console Shiva"
+      - "Non disponible — Security groups non natifs, filtrage via firewalls dédiés"
+      - "Cloud Temple est une filiale du groupe NEURONES, pas d'ATOS"
+
+  - name: Definition
+    description: Explication formelle d'un terme, concept ou technologie
+    examples:
+      - "tCO2e : tonne équivalent CO2 (unité standardisée)"
+      - "Quantisation : réduction de la précision des poids d'un LLM"
+      - "PUE : Power Usage Effectiveness (efficacité énergétique DC)"
+
+  - name: Fact
+    description: Affirmation factuelle vérifiable avec une valeur précise
+    examples:
+      - "Qualification SecNumCloud obtenue le 30/05/2025"
+      - "Compatibilité API S3 à 97%"
+      - "Backbone inter-AZ : 2x100 Gbps"
+
+  # ---------------------------------------------------------------------------
+  # 🏢 FAMILLE 2 : ORGANISATIONS & ACTEURS
+  # ---------------------------------------------------------------------------
+  - name: Organization
+    description: Entreprise, agence, institution ou organisme
+    examples:
+      - "Cloud Temple"
+      - "Groupe NEURONES"
+      - "ANSSI"
+      - "Bpifrance"
+      - "ADEME"
+      - "Fortinet"
+
+  - name: Person
+    description: Personne physique nommée
+    examples:
+      - "Christophe Lesur (DG Cloud Temple)"
+
+  - name: ClientReference
+    description: Référence client avec contexte (secteur, budget, durée, périmètre)
+    priority: high
+    examples:
+      - "Groupe Avril (Agroalimentaire, 3M€/an, 1200 VM)"
+      - "AMF (Régulateur financier, 2M€/an, 850 VM)"
+      - "SUEZ (Eau/Déchets, 3.8M€/an, 15 ans, LPM/NIS2)"
+      - "ANS — SI SAMU (Santé, 850k€/an, partenariat Thales)"
+
+  - name: Partner
+    description: Partenaire technologique, commercial ou intégrateur
+    examples:
+      - "Atos (partenaire sur appels d'offres publics)"
+      - "Intrinsec (CERT PRIS qualifié ANSSI)"
+      - "Thales (partenariat ANS/SI-SAMU)"
+      - "Systema Conseil (conformité HDS)"
+
+  # ---------------------------------------------------------------------------
+  # ⚙️ FAMILLE 3 : PRODUITS & TECHNOLOGIE
+  # ---------------------------------------------------------------------------
+  - name: Product
+    description: Service, offre ou solution commercialisée
+    priority: high
+    examples:
+      - "IaaS VMware"
+      - "LLMaaS (LLM as a Service)"
+      - "Managed Kubernetes"
+      - "Object Storage S3"
+      - "SOC managé 24/7"
+      - "Bare Metal (pour Oracle/SAP)"
+
+  - name: ProductModel
+    description: Modèle ou SKU spécifique avec ses caractéristiques (matériel, appliance, config)
+    priority: high
+    examples:
+      - "FortiGate FG-900G (164 Gbps FW, 55G IPsec, 16M sessions)"
+      - "FortiGate FG-100F (20 Gbps FW, 1.5M sessions, 1RU)"
+      - "Cisco UCS B200 M5 (lame compute)"
+      - "Thales Luna S790 (HSM FIPS 140-3 L3)"
+
+  - name: Technology
+    description: Technologie, logiciel, protocole ou standard technique
+    examples:
+      - "VMware vSphere"
+      - "Red Hat OpenShift"
+      - "Fortinet FortiGate"
+      - "IBM FlashSystem"
+      - "Terraform"
+      - "Kubernetes"
+      - "Stormshield (qualifié ANSSI)"
+
+  - name: Specification
+    description: Valeur technique précise avec unité
+    examples:
+      - "Firewall 164 Gbps (1518B)"
+      - "16 millions sessions concurrentes"
+      - "Latence 3.78 μs"
+      - "25 Gbps par lame"
+      - "Bande passante 95ème percentile"
+
+  - name: PricingInfo
+    description: Tarif, modèle de facturation ou structure de coût
+    examples:
+      - "0.9€/million tokens en entrée (LLMaaS)"
+      - "4€/million tokens en sortie"
+      - "0.03€ HT/Gio/mois (stockage objet)"
+      - "Facturation au 95ème percentile (bande passante)"
+      - "Pas de frais d'égrès"
+
+  # ---------------------------------------------------------------------------
+  # 🛡️ FAMILLE 4 : CONFORMITÉ & ENGAGEMENTS
+  # ---------------------------------------------------------------------------
+  - name: Certification
+    description: Norme, label, qualification ou certification officielle
+    priority: high
+    examples:
+      - "SecNumCloud v3.2 (ANSSI, 30/05/2025)"
+      - "ISO 27001:2022 (Certi-Trust, 16/12/2027)"
+      - "HDS activités 2 à 6 (Certi-Trust, 16/12/2027)"
+      - "ISAE 3402 Type II"
+      - "C5 (Naolys Audit, 31/05/2026)"
+
+  - name: Regulation
+    description: Loi, directive, référentiel réglementaire
+    examples:
+      - "NIS2 (Directive EU 2022/2555)"
+      - "DORA (Règlement EU 2022/2554)"
+      - "RGPD"
+      - "Référentiel SecNumCloud v3.2"
+      - "Référentiel HDS"
+
+  - name: Requirement
+    description: Exigence, besoin ou contrainte (client, réglementaire ou technique)
+    examples:
+      - "Localisation des données en France"
+      - "Hébergement de données de santé"
+      - "PRA avec RPO zéro"
+      - "Filtrage réseau Est-Ouest"
+
+  - name: SLA
+    description: Engagement de niveau de service chiffré
+    examples:
+      - "Disponibilité 99.99%"
+      - "GTI 15 minutes"
+      - "GTR 4 heures"
+      - "Support 24/7 en option"
+
+  # ---------------------------------------------------------------------------
+  # 📊 FAMILLE 5 : INDICATEURS & STRATÉGIE
+  # ---------------------------------------------------------------------------
+  - name: KPI
+    description: Indicateur de performance mesurable avec valeur et objectif
+    priority: high
+    examples:
+      - "NPS 42 (2024, objectif 50 en 2025)"
+      - "PUE < 1.45"
+      - "Émissions GES 2133 tCO2e (2023)"
+      - "Intensité carbone 47 kg CO2e/k€ CA"
+      - "Égalité HF 89% (2024, objectif 90% en 2025)"
+      - "Collaborateurs sensibilisés NR 79% (objectif 100%)"
+
+  - name: Target
+    description: Objectif chiffré avec échéance
+    examples:
+      - "−41% émissions relatives d'ici 2030"
+      - "−30% GES par euro dépensé"
+      - "Net-zero scope 1/2 −90% d'ici 2050 (SBTi)"
+      - "Parité HF management (ratio = 1)"
+      - "75% valorisation fin de vie DC (2025)"
+
+  - name: Action
+    description: Mesure, initiative ou plan d'action concret
+    examples:
+      - "Éco-conditions dans la politique d'achats"
+      - "Allongement durée de vie serveurs (3→7 ans)"
+      - "Remplacement flotte véhicules électriques"
+      - "Sensibilisation fresque du climat"
+      - "Migration SAP S4/HANA sur Cloud de confiance"
+
+  - name: Evidence
+    description: Preuve formelle, rapport, attestation ou document source
+    examples:
+      - "Décision ANSSI N° 918/ANSSI/SDE/NP"
+      - "Rapport Diag Décarbon'Action (Bpifrance, 12/2024)"
+      - "Certificat ISO 27001 (Certi-Trust)"
+      - "Attestation ISAE 3402 Type II (Guibert & Co)"
+
+# =============================================================================
+# TYPES DE RELATIONS (22 types, 5 familles)
+# =============================================================================
+relation_types:
+
+  # ---------------------------------------------------------------------------
+  # CONNAISSANCE
+  # ---------------------------------------------------------------------------
+  - name: ANSWERS
+    description: Une réponse couvre une question
+    priority: high
+    examples:
+      - "Réponse segmentation VLANs → ANSWERS → Question pilotage réseau"
+
+  - name: COVERS
+    description: Un produit, une réponse ou un document couvre un sujet
+    examples:
+      - "IaaS VMware → COVERS → Topic Stockage bloc"
+      - "Answer chiffrement SSE → COVERS → Topic Stockage objet"
+
+  - name: DEFINES
+    description: Une définition explique un terme
+    examples:
+      - "Définition tCO2e → DEFINES → émissions GES"
+
+  - name: PROVEN_BY
+    description: Une affirmation est prouvée par un document source
+    priority: high
+    examples:
+      - "Certification SecNumCloud → PROVEN_BY → Décision ANSSI N°918"
+
+  # ---------------------------------------------------------------------------
+  # CAPACITÉ & CONFORMITÉ
+  # ---------------------------------------------------------------------------
+  - name: PROVIDES
+    description: Une organisation fournit un produit ou service
+    examples:
+      - "Cloud Temple → PROVIDES → IaaS VMware"
+
+  - name: HAS_CERTIFICATION
+    description: Une entité possède une certification
+    priority: high
+    examples:
+      - "IaaS Secure Temple → HAS_CERTIFICATION → SecNumCloud v3.2"
+      - "Cloud Temple → HAS_CERTIFICATION → ISO 27001:2022"
+
+  - name: COMPLIANT_WITH
+    description: Un service respecte une réglementation
+    examples:
+      - "Stockage objet → COMPLIANT_WITH → RGPD"
+
+  - name: HAS_SLA
+    description: Un produit est associé à un engagement de service
+    priority: high
+    examples:
+      - "IaaS VMware → HAS_SLA → Disponibilité 99.99%"
+
+  - name: REQUIRES
+    description: Une entité nécessite un prérequis
+    examples:
+      - "Hébergement santé → REQUIRES → Certification HDS"
+
+  # ---------------------------------------------------------------------------
+  # TECHNIQUE & PRODUIT
+  # ---------------------------------------------------------------------------
+  - name: USES_TECHNOLOGY
+    description: Un produit utilise une technologie
+    examples:
+      - "Sécurité réseau → USES_TECHNOLOGY → Fortinet FortiGate"
+
+  - name: HAS_MODEL
+    description: Un produit ou gamme inclut un modèle spécifique
+    examples:
+      - "FortiGate → HAS_MODEL → FG-900G (164 Gbps)"
+
+  - name: HAS_SPEC
+    description: Un modèle possède une spécification technique
+    examples:
+      - "FG-900G → HAS_SPEC → 16M sessions concurrentes"
+
+  - name: PRICED_AT
+    description: Un produit a un tarif
+    examples:
+      - "LLMaaS → PRICED_AT → 0.9€/M tokens entrée"
+
+  - name: INTEGRATES_WITH
+    description: Un produit s'intègre avec un autre
+    examples:
+      - "Console Shiva → INTEGRATES_WITH → Terraform"
+
+  # ---------------------------------------------------------------------------
+  # RÉFÉRENCES & ACTEURS
+  # ---------------------------------------------------------------------------
+  - name: DEPLOYED_FOR
+    description: Un produit/solution a été déployé pour un client
+    priority: high
+    examples:
+      - "Cloud SecNumCloud → DEPLOYED_FOR → AMF (850 VM, 2M€/an)"
+
+  - name: PARTNERED_WITH
+    description: Une organisation a un partenariat avec une autre
+    examples:
+      - "Cloud Temple → PARTNERED_WITH → Atos"
+
+  # ---------------------------------------------------------------------------
+  # STRATÉGIE & INDICATEURS
+  # ---------------------------------------------------------------------------
+  - name: MEASURED_BY
+    description: Une entité est mesurée par un indicateur
+    examples:
+      - "Efficacité énergétique DC → MEASURED_BY → PUE < 1.45"
+
+  - name: TARGETS
+    description: Un KPI ou une action vise un objectif
+    examples:
+      - "Plan décarbonation → TARGETS → −41% émissions 2030"
+
+  - name: ADDRESSES
+    description: Une action traite un enjeu ou risque
+    examples:
+      - "Allongement durée vie serveurs → ADDRESSES → Empreinte carbone immobilisations"
+
+  # ---------------------------------------------------------------------------
+  # STRUCTURE
+  # ---------------------------------------------------------------------------
+  - name: PART_OF
+    description: Une entité fait partie d'un ensemble
+    examples:
+      - "Stockage objet → PART_OF → Topic Fonctionnalités attendues"
+
+  - name: RELATED_TO
+    description: Relation générique (dernier recours)
+    examples:
+      - "Concept A → RELATED_TO → Concept B"
+
+  - name: SUPERSEDES
+    description: Une version remplace une précédente
+    examples:
+      - "SecNumCloud v3.2 → SUPERSEDES → SecNumCloud v3.1"
+
+# =============================================================================
+# RÈGLES D'EXTRACTION
+# =============================================================================
+extraction_rules:
+  max_entities: 60
+  max_relations: 80
+
+  priority_entities:
+    - Question
+    - Answer
+    - Product
+    - ProductModel
+    - Certification
+    - ClientReference
+    - KPI
+    - SLA
+
+  special_instructions: |
+    # --- RÈGLES POUR LES FAQ / Q&A ---
+    - Si le document est structuré en sections Q&A, chaque question = une entité Question
+      et chaque réponse = une entité Answer, liées par ANSWERS.
+    - Intègre "Disponible: Oui/Non" et "Couverture: Intégralement/Partiellement" 
+      dans le nom de l'Answer (ex: "Oui, Intégralement — Segmentation via VLANs").
+    - NE PAS créer une entité par section de FAQ. Crée des Questions individuelles.
+
+    # --- RÈGLES POUR LES RÉFÉRENCES CLIENTS ---
+    - Intègre TOUJOURS budget annuel, nombre de VM, durée de relation et secteur
+      dans le nom de l'entité ClientReference.
+      ✅ "AMF (Régulateur, 2M€/an, 850 VM)"
+      ❌ "AMF" seul + entité "Budget 2M€" séparée
+
+    # --- RÈGLES POUR LES SPECS PRODUITS (Fortinet, serveurs, etc.) ---
+    - Chaque modèle distinct = une entité ProductModel.
+    - Les specs clés (débit, sessions, latence, interfaces) = entités Specification
+      liées par HAS_SPEC.
+    - NE PAS créer une entité par ligne de tableau. Regroupe par modèle.
+
+    # --- RÈGLES POUR LES INDICATEURS RSE ---
+    - Un KPI doit TOUJOURS contenir : nom + valeur + année + objectif si dispo.
+      ✅ "NPS 42 (2024, objectif 50 en 2025)"
+      ❌ "NPS" seul
+    - Les plans d'action RSE = entités Action, liées aux Target via TARGETS.
+
+    # --- MAPPINGS OBLIGATOIRES (anti-"Other") ---
+
+    - ⚠️ Les montants (budget, prix, valeur contrat, chiffre d'affaires) doivent être
+      INTÉGRÉS dans ClientReference, PricingInfo ou KPI. Ne crée JAMAIS de type
+      "MonetaryAmount", "Amount", "Budget" ou "Revenue".
+
+    - ⚠️ Les durées (contrat, projet, engagement, validité) doivent être INTÉGRÉES
+      dans le nom de l'entité associée (ClientReference, Certification, SLA).
+      Ne crée JAMAIS de type "Duration", "Period" ou "Timeframe".
+
+    - ⚠️ Les dates (obtention, expiration, publication) doivent être INTÉGRÉES
+      dans le nom de l'entité. Ex: "SecNumCloud v3.2 (30/05/2025, valide 30/05/2028)".
+      Ne crée JAMAIS de type "Date" ou "Timestamp".
+
+    - ⚠️ Les pourcentages et scores isolés doivent être intégrés dans KPI ou SLA.
+      Ne crée JAMAIS de type "Percentage", "Score" ou "Metric" — utilise KPI.
+
+    - ⚠️ Les noms de sections, titres de documents ou en-têtes ne sont PAS des entités.
+      Ne crée JAMAIS de type "Section", "Chapter" ou "DocumentTitle".
+
+    - ⚠️ Les processus opérationnels (gestion incidents, MCO, infogérance) sont des Product.
+      Ne crée JAMAIS de type "Process" ou "Workflow".
+
+    - ⚠️ Les profils types (SDM, architecte, ingénieur) sont des entités Person
+      uniquement s'ils sont nommés, sinon IGNORER.
+      Ne crée JAMAIS de type "JobTitle" ou "Profile".
+
+    - ⚠️ Les unités de mesure seules (Gbps, IOPS, tCO2e, €) ne sont PAS des entités.
+      Elles doivent être intégrées dans Specification, KPI ou PricingInfo.
+
+    # --- EXCLUSIONS ---
+    - ⚠️ NE PAS extraire comme entités :
+      * Les mots isolés sans contexte ("Sécurité", "Performance", "Réseau")
+      * Les abréviations seules sans définition ("HA", "DR", "NR")
+      * Les numéros de section ("2.1.1", "Section 3.2")
+      * Les formulations vagues ("haute disponibilité", "sécurité renforcée")
+      * Les paramètres CLI ou variables d'environnement
+      → Ces éléments doivent être IGNORÉS ou intégrés comme attributs.
+
+    # --- QUALITÉ DES NOMS ---
+    - Chaque entité doit avoir un nom descriptif et auto-suffisant.
+      ✅ "FortiGate FG-900G (164 Gbps FW, 16M sessions)"
+      ❌ "FG-900G"
+      ✅ "SecNumCloud v3.2 (ANSSI, 30/05/2025)"
+      ❌ "SecNumCloud"
+      ✅ "Émissions GES 2133 tCO2e (FY2023, −41% objectif 2030)"
+      ❌ "Émissions GES"
+
+# =============================================================================
+# EXEMPLES D'EXTRACTION
+# =============================================================================
+examples:
+  - context: "FAQ RFI ANSSI — section Réseau"
+    input: |
+      ## 2.1.1 Réseau - Protection anti-DDoS
+      **Réponse Cloud Temple :**
+      - **Disponible :** Oui
+      - **Couverture :** Intégralement
+      - **Détails :** Protection DDoS volumétrique incluse en standard,
+        filtrage en amont par partenaires opérateurs.
+    expected_entities:
+      - {name: "Protection anti-DDoS disponible ?", type: "Question"}
+      - {name: "Oui, Intégralement — DDoS volumétrique inclus, filtrage amont opérateurs", type: "Answer"}
+      - {name: "Réseau (section 2.1.1)", type: "Topic"}
+      - {name: "Anti-DDoS (inclus dans connectivité Internet)", type: "Product"}
+    expected_relations:
+      - {from: "Oui, Intégralement — DDoS volumétrique", to: "Protection anti-DDoS disponible ?", type: "ANSWERS"}
+      - {from: "Protection anti-DDoS disponible ?", to: "Réseau (section 2.1.1)", type: "PART_OF"}
+      - {from: "Anti-DDoS", to: "Cloud Temple", type: "PROVIDES"}
+
+  - context: "Référence client — SUEZ"
+    input: |
+      Client : le groupe SUEZ
+      Infrastructures : Cloud de confiance SecNumCloud, CMP Shiva, LPM, NIS2.
+      Plus de 300 VM, coût annuel 3,8 M€, confiance renouvelée depuis 15 ans.
+    expected_entities:
+      - {name: "SUEZ (Eau/Déchets, 3.8M€/an, 300+ VM, 15 ans, LPM/NIS2)", type: "ClientReference"}
+      - {name: "Cloud de confiance SecNumCloud", type: "Product"}
+      - {name: "Console CMP Shiva", type: "Technology"}
+      - {name: "NIS2 (Directive EU 2022/2555)", type: "Regulation"}
+      - {name: "LPM (Loi de Programmation Militaire)", type: "Regulation"}
+    expected_relations:
+      - {from: "Cloud de confiance SecNumCloud", to: "SUEZ", type: "DEPLOYED_FOR"}
+      - {from: "SUEZ", to: "NIS2", type: "COMPLIANT_WITH"}
+
+  - context: "Bilan RSE — indicateurs"
+    input: |
+      Émissions totales : 2 133 tCO2e (FY2023).
+      Intensité carbone : 47 kg CO2e / k€ de CA.
+      Objectif : −41% d'émissions relatives d'ici 2030.
+    expected_entities:
+      - {name: "Émissions GES 2133 tCO2e (FY2023)", type: "KPI"}
+      - {name: "Intensité carbone 47 kg CO2e/k€ CA (FY2023)", type: "KPI"}
+      - {name: "−41% émissions relatives d'ici 2030", type: "Target"}
+    expected_relations:
+      - {from: "Émissions GES 2133 tCO2e", to: "−41% émissions relatives 2030", type: "TARGETS"}
