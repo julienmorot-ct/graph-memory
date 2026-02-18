@@ -82,4 +82,5 @@ AUDIT_SECURITE_2026-02-16.md
 /product_sheets/
 scripts/analyze_entities.py
 scripts/analyze_others.py
+REFERENTIELS/
 

@@ -4,9 +4,15 @@ Service de mémoire persistante basé sur un **graphe de connaissances** pour le
 
 Développé par **[Cloud Temple](https://www.cloud-temple.com)**.
 
+<p align="center">
+  <img src="screenshoot/screen1.png" alt="Graph Memory — Visualisation du graphe de connaissances" width="800">
+</p>
+
 ---
 
 ## 📋 Table des matières
+
+- [Captures d'écran](#-captures-décran)
 
 - [Changelog](#-changelog)
 - [Concept](#-concept)
@@ -26,6 +32,33 @@ Développé par **[Cloud Temple](https://www.cloud-temple.com)**.
 - [Structure du projet](#-structure-du-projet)
 - [Dépannage](#-dépannage)
 - [Licence](#-licence)
+
+---
+
+## 📸 Captures d'écran
+
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <img src="screenshoot/screen2.png" alt="Graphe interactif avec filtrage" width="100%"><br>
+      <b>Graphe interactif</b> — Visualisation du graphe de connaissances avec filtrage par types d'entités et de relations
+    </td>
+    <td align="center" width="50%">
+      <img src="screenshoot/screen3.png" alt="Panneau Question/Réponse" width="100%"><br>
+      <b>Panneau ASK</b> — Question en langage naturel avec réponse LLM, citations et mode Focus
+    </td>
+  </tr>
+  <tr>
+    <td align="center" width="50%">
+      <img src="screenshoot/screen1.png" alt="Vue d'ensemble du graphe" width="100%"><br>
+      <b>Vue d'ensemble</b> — Entités colorées par type, relations inter-documents, sidebar de filtrage
+    </td>
+    <td align="center" width="50%">
+      <img src="screenshoot/screen4.png" alt="CLI interactive" width="100%"><br>
+      <b>CLI interactive</b> — Shell avec autocomplétion, progression temps réel, affichage Rich
+    </td>
+  </tr>
+</table>
 
 ---
 
