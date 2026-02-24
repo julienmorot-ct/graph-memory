@@ -1,0 +1,461 @@
+# =============================================================================
+# Ontologie Managed AIOps / CI-CMDB pour l'infogérance
+# =============================================================================
+# Objectif : extraire une représentation CI/CMDB (serveurs/VM, bases de données,
+# middleware, load balancers) + pratiques d'exploitation (monitoring, backup,
+# patching, fenêtres de maintenance, runbooks) depuis des inventaires, runbooks,
+# schémas d'architecture d'exploitation et documents MCO.
+
+name: managed-aiops
+version: "1.0"
+description: |
+  Ontologie CI/CMDB orientée infogérance (AIOps).
+  Optimisée pour extraire les Configuration Items (CI) typiques :
+  serveurs/VM, OS, bases de données (engines/instances/clusters), middleware
+  (Tomcat/JBoss/Redis), load balancers (HAProxy/Aloha) ainsi que leurs
+  dépendances et pratiques d'exploitation (monitoring/backup/patch/runbooks).
+
+# Instructions spécifiques pour le LLM
+context: |
+  Tu es un expert exploitation / infogérance (CMDB, AIOps, RUN).
+  Tu dois identifier des Configuration Items (CI) et leurs dépendances techniques.
+  Concentre-toi sur :
+  - les instances (VM, DB instance, middleware instance, load balancer instance)
+  - les relations de dépendance (RUNS_ON, USES_DATABASE, LOAD_BALANCED_BY, etc.)
+  - l'environnement (Prod/Préprod/Dev/DR)
+  - les règles d'exploitation (monitoring, backup, patch, fenêtre de maintenance)
+
+  IMPORTANT :
+  - Les inventaires sont souvent sous forme de tableaux : 1 ligne = 1 CI.
+  - Ne crée pas une entité par cellule (IP/port/version isolés). Intègre ces
+    informations dans le nom/description des CI.
+
+# =============================================================================
+# Types d'entités (CI/CMDB)
+# =============================================================================
+entity_types:
+  # --- Contexte / responsabilité ---
+  - name: Organization
+    description: Organisation (client, prestataire, éditeur)
+    examples:
+      - "Cloud Temple"
+      - "DSI Client"
+
+  - name: Team
+    description: Équipe d'exploitation (NOC, DBA, MCO...)
+    examples:
+      - "Équipe MCO"
+      - "Équipe DBA"
+      - "SOC"
+
+  - name: Role
+    description: Rôle opérationnel (non nominatif)
+    examples:
+      - "DBA"
+      - "Administrateur Systèmes"
+      - "Exploitant"
+
+  - name: Environment
+    description: Environnement (Prod/Préprod/Dev/DR...) ou contexte d'hébergement
+    priority: high
+    examples:
+      - "Production (Prod)"
+      - "Préproduction (Preprod)"
+      - "Développement (Dev)"
+      - "Disaster Recovery (DR)"
+
+  - name: BusinessService
+    description: Service métier rendu (vue “service”, pas un composant)
+    priority: high
+    examples:
+      - "Service Facturation"
+      - "Portail Client"
+      - "ERP"
+
+  - name: Application
+    description: Application (brique applicative) déployée
+    priority: high
+    examples:
+      - "billing-api"
+      - "erp-web"
+      - "batch-compta"
+
+  - name: Runbook
+    description: Procédure d'exploitation / runbook / fiche réflexe
+    examples:
+      - "Runbook redémarrage Tomcat"
+      - "Procédure de bascule AlwaysOn"
+      - "Mode opératoire patch Oracle"
+
+  # --- Compute / OS ---
+  - name: PhysicalServer
+    description: Serveur physique / bare metal
+    examples:
+      - "srv-bm-001 (Dell R740, Prod)"
+
+  - name: VirtualMachine
+    description: Machine virtuelle (CI)
+    priority: high
+    examples:
+      - "vm-app-prod-01 (8 vCPU, 32Go, Prod)"
+      - "vm-db-prod-02 (16 vCPU, 64Go, Prod)"
+
+  - name: OperatingSystem
+    description: Système d'exploitation
+    examples:
+      - "RHEL 9.2"
+      - "Windows Server 2022"
+      - "Ubuntu 22.04"
+
+  - name: Cluster
+    description: Cluster générique (applicatif, LB, DB, etc.)
+    examples:
+      - "Cluster Tomcat Prod"
+      - "Cluster HAProxy Prod"
+
+  - name: Node
+    description: Nœud au sein d'un cluster (si explicitement listé)
+    examples:
+      - "node-01 (Prod)"
+      - "node-02 (Prod)"
+
+  # --- Réseau / exposition ---
+  - name: ServiceEndpoint
+    description: Endpoint exposé (VIP, FQDN, URL, host:port)
+    examples:
+      - "vip-portail-prod (10.10.10.10:443)"
+      - "https://portail.exemple.fr"
+      - "db-prod-vip (10.10.20.10:1433)"
+
+  # --- Load balancers ---
+  - name: LoadBalancerProduct
+    description: Produit / technologie de load balancing
+    examples:
+      - "HAProxy"
+      - "Aloha (HAProxy commercial)"
+
+  - name: LoadBalancerInstance
+    description: Instance / CI de load balancer (appliance/VM/service)
+    priority: high
+    examples:
+      - "haproxy-prod-01 (HAProxy 2.6, Prod)"
+      - "aloha-prod-02 (Aloha, Prod)"
+
+  # --- Bases de données ---
+  - name: DatabaseEngine
+    description: Moteur de base de données
+    priority: high
+    examples:
+      - "PostgreSQL"
+      - "Microsoft SQL Server"
+      - "Oracle Database"
+      - "MariaDB"
+      - "MySQL"
+      - "MongoDB"
+
+  - name: DatabaseInstance
+    description: Instance de base de données (service, SID, instance name)
+    priority: high
+    examples:
+      - "pg-billing-prod (PostgreSQL 15, Prod)"
+      - "sqlsrv-erp-prod (SQL Server 2019, Prod)"
+      - "orcl-finance-prod (Oracle 19c, SID=FIN, Prod)"
+      - "mongo-logs-prod (MongoDB 6, replica set rs0, Prod)"
+
+  - name: DatabaseCluster
+    description: Cluster DB / HA (RAC, AlwaysOn, réplication, replica set)
+    examples:
+      - "Oracle RAC Finance (Prod)"
+      - "SQL Server AlwaysOn ERP (Prod)"
+      - "Replica set MongoDB Logs (rs0, Prod)"
+      - "PostgreSQL streaming replication Billing (Prod)"
+
+  # --- Middleware ---
+  - name: MiddlewareProduct
+    description: Produit middleware / composant applicatif
+    priority: high
+    examples:
+      - "Tomcat"
+      - "JBoss / WildFly"
+      - "Redis"
+
+  - name: MiddlewareInstance
+    description: Instance middleware (CI)
+    priority: high
+    examples:
+      - "tomcat-portail-prod-01 (Tomcat 10, Prod)"
+      - "jboss-erp-prod-01 (JBoss EAP 7.4, Prod)"
+      - "redis-cache-prod (Redis 7, Prod)"
+
+  # --- Exploitation ---
+  - name: MonitoringTool
+    description: Outil de monitoring / supervision
+    examples:
+      - "Centreon"
+      - "Zabbix"
+      - "Prometheus"
+
+  - name: BackupPolicy
+    description: Politique de sauvegarde (fréquence, rétention, RPO/RTO)
+    examples:
+      - "Backup quotidien (rétention 30j, RPO 24h)"
+      - "Backup full hebdo + incrémental quotidien (rétention 90j)"
+
+  - name: PatchPolicy
+    description: Politique de patching (fréquence, criticité, procédure)
+    examples:
+      - "Patching mensuel (2e mardi, Prod)"
+      - "Patching critique sous 72h"
+
+  - name: MaintenanceWindow
+    description: Fenêtre de maintenance
+    examples:
+      - "Maintenance mensuelle (dimanche 02:00-04:00)"
+      - "Fenêtre HNO (22:00-06:00)"
+
+  - name: SLA
+    description: Engagement chiffré (disponibilité, GTI/GTR...)
+    priority: high
+    examples:
+      - "Disponibilité 99.9%"
+      - "GTI 15 minutes"
+      - "GTR 4 heures"
+
+  - name: Alert
+    description: Alerte ou évènement d'exploitation (si explicitement nommé)
+    examples:
+      - "Alerte CPU > 90% (5 min)"
+      - "Alerte espace disque < 10%"
+
+# =============================================================================
+# Types de relations
+# =============================================================================
+relation_types:
+  - name: DEPLOYED_IN
+    description: Déployé dans un environnement
+    examples:
+      - "vm-app-prod-01 → DEPLOYED_IN → Production (Prod)"
+
+  - name: PART_OF
+    description: Fait partie de (composition)
+    examples:
+      - "tomcat-portail-prod-01 → PART_OF → Cluster Tomcat Prod"
+      - "erp-web → PART_OF → ERP"
+
+  - name: RUNS_ON
+    description: S'exécute sur (hébergement)
+    examples:
+      - "tomcat-portail-prod-01 → RUNS_ON → vm-app-prod-01"
+      - "pg-billing-prod → RUNS_ON → vm-db-prod-02"
+
+  - name: HAS_OS
+    description: Possède un OS
+    examples:
+      - "vm-app-prod-01 → HAS_OS → RHEL 9.2"
+
+  - name: EXPOSES
+    description: Expose un endpoint
+    examples:
+      - "haproxy-prod-01 → EXPOSES → vip-portail-prod (10.10.10.10:443)"
+      - "Portail Client → EXPOSES → https://portail.exemple.fr"
+
+  - name: LOAD_BALANCES
+    description: Load-balance vers (cibles derrière LB)
+    examples:
+      - "haproxy-prod-01 → LOAD_BALANCES → tomcat-portail-prod-01"
+      - "aloha-prod-02 → LOAD_BALANCES → jboss-erp-prod-01"
+
+  - name: USES_DATABASE
+    description: Utilise une base de données
+    examples:
+      - "billing-api → USES_DATABASE → pg-billing-prod"
+      - "ERP → USES_DATABASE → SQL Server AlwaysOn ERP (Prod)"
+
+  - name: USES_MIDDLEWARE
+    description: Utilise un middleware
+    examples:
+      - "Portail Client → USES_MIDDLEWARE → tomcat-portail-prod-01"
+      - "ERP → USES_MIDDLEWARE → redis-cache-prod"
+
+  - name: CONNECTS_TO
+    description: Se connecte à (dépendance réseau ou applicative)
+    examples:
+      - "billing-api → CONNECTS_TO → vip-portail-prod (10.10.10.10:443)"
+
+  - name: REPLICATED_TO
+    description: Répliqué vers (DR, replica, secondaire)
+    examples:
+      - "pg-billing-prod → REPLICATED_TO → pg-billing-dr"
+
+  - name: BACKED_UP_BY
+    description: Sauvegardé selon une politique
+    examples:
+      - "pg-billing-prod → BACKED_UP_BY → Backup quotidien (rétention 30j, RPO 24h)"
+
+  - name: PATCHED_BY
+    description: Patché selon une politique
+    examples:
+      - "vm-app-prod-01 → PATCHED_BY → Patching mensuel (2e mardi, Prod)"
+
+  - name: MAINTAINED_DURING
+    description: Maintenu durant une fenêtre de maintenance
+    examples:
+      - "SQL Server AlwaysOn ERP (Prod) → MAINTAINED_DURING → Maintenance mensuelle (dimanche 02:00-04:00)"
+
+  - name: MONITORED_BY
+    description: Supervisé par
+    examples:
+      - "vm-db-prod-02 → MONITORED_BY → Centreon"
+      - "pg-billing-prod → MONITORED_BY → Zabbix"
+
+  - name: DOCUMENTED_BY
+    description: Documenté par
+    examples:
+      - "tomcat-portail-prod-01 → DOCUMENTED_BY → Runbook redémarrage Tomcat"
+
+  - name: MANAGED_BY
+    description: Géré par une équipe
+    examples:
+      - "pg-billing-prod → MANAGED_BY → Équipe DBA"
+      - "haproxy-prod-01 → MANAGED_BY → Équipe MCO"
+
+  - name: RESPONSIBLE_FOR
+    description: Responsable de (rôle/équipe)
+    examples:
+      - "DBA → RESPONSIBLE_FOR → SQL Server AlwaysOn ERP (Prod)"
+
+  - name: HAS_SLA
+    description: Associé à un SLA
+    examples:
+      - "Portail Client → HAS_SLA → Disponibilité 99.9%"
+
+# =============================================================================
+# Règles d'extraction
+# =============================================================================
+extraction_rules:
+  max_entities: 60
+  max_relations: 80
+  include_metrics: true
+  include_durations: true
+  include_amounts: false
+  extract_implicit_relations: true
+
+  priority_entities:
+    - Environment
+    - BusinessService
+    - Application
+    - VirtualMachine
+    - DatabaseEngine
+    - DatabaseInstance
+    - MiddlewareProduct
+    - MiddlewareInstance
+    - LoadBalancerInstance
+    - SLA
+
+  special_instructions: |
+    # --- INVENTAIRES / TABLEAUX ---
+    - Si le document contient un inventaire (tableau, liste structurée), 1 ligne = 1 CI.
+      Crée une entité CI (VirtualMachine, DatabaseInstance, MiddlewareInstance, LoadBalancerInstance)
+      avec un nom auto-suffisant (inclure env + rôle + version si disponible).
+      Ne crée PAS une entité par cellule.
+
+    # --- NOMMAGE (QUALITÉ) ---
+    - Les noms doivent être explicites : hostname/instance + techno + version + env si possible.
+      ✅ "sqlsrv-erp-prod (SQL Server 2019, Prod)"
+      ❌ "SQL Server" seul, ❌ "2019" seul.
+
+    # --- ENDPOINTS ---
+    - Les IP/ports/VIP/FQDN/URL doivent être des ServiceEndpoint.
+      Ne crée JAMAIS de type "IP", "Port", "URL" ou "Hostname" séparé.
+
+    # --- MAPPINGS OBLIGATOIRES (anti-"Other") ---
+    - PostgreSQL, Microsoft SQL Server, Oracle, MariaDB, MySQL, MongoDB → DatabaseEngine.
+    - Une instance concrète (SID/ServiceName/instance name/DB name) → DatabaseInstance.
+    - RAC, AlwaysOn, replica set, streaming replication → DatabaseCluster (si explicitement nommé)
+      et/ou relation REPLICATED_TO si la cible est mentionnée.
+
+    - Tomcat, JBoss/WildFly, Redis → MiddlewareProduct.
+    - Une instance (tomcat-prod-01, jboss-erp-prod, redis-cache-prod) → MiddlewareInstance.
+
+    - HAProxy et Aloha sont des load balancers.
+      Crée LoadBalancerProduct ("HAProxy" / "Aloha (HAProxy commercial)")
+      et des LoadBalancerInstance pour les appliances/VM/instances.
+
+    # --- ANTI-HUB ---
+    - Ne relie pas tout à Organization.
+      Privilégie RUNS_ON, USES_DATABASE, USES_MIDDLEWARE, LOAD_BALANCES, EXPOSES, PART_OF.
+
+    # --- EXCLUSIONS ---
+    - Ignorer les identifiants techniques isolés sans contexte (UUID, tickets, numéros de build).
+    - Ne pas extraire des chemins de fichiers ou des commandes comme entités.
+
+# =============================================================================
+# Exemples d'extraction
+# =============================================================================
+examples:
+  - context: "Inventaire simplifié (Prod)"
+    input: |
+      Environnement : Production.
+      VM : vm-app-prod-01 (RHEL 9.2) héberge tomcat-portail-prod-01 (Tomcat 10).
+      VM : vm-db-prod-02 (Windows Server 2022) héberge sqlsrv-erp-prod (SQL Server 2019).
+      Le portail client (portail-web) est exposé via vip-portail-prod (10.10.10.10:443)
+      sur aloha-prod-02 (Aloha). Le portail utilise la base sqlsrv-erp-prod.
+      Supervision : Centreon. Sauvegarde : Backup quotidien (rétention 30j, RPO 24h).
+    expected_entities:
+      - {name: "Production (Prod)", type: "Environment"}
+      - {name: "vm-app-prod-01 (8 vCPU, 32Go, Prod)", type: "VirtualMachine"}
+      - {name: "RHEL 9.2", type: "OperatingSystem"}
+      - {name: "tomcat-portail-prod-01 (Tomcat 10, Prod)", type: "MiddlewareInstance"}
+      - {name: "Tomcat", type: "MiddlewareProduct"}
+      - {name: "vm-db-prod-02 (16 vCPU, 64Go, Prod)", type: "VirtualMachine"}
+      - {name: "Windows Server 2022", type: "OperatingSystem"}
+      - {name: "sqlsrv-erp-prod (SQL Server 2019, Prod)", type: "DatabaseInstance"}
+      - {name: "Microsoft SQL Server", type: "DatabaseEngine"}
+      - {name: "aloha-prod-02 (Aloha, Prod)", type: "LoadBalancerInstance"}
+      - {name: "Aloha (HAProxy commercial)", type: "LoadBalancerProduct"}
+      - {name: "vip-portail-prod (10.10.10.10:443)", type: "ServiceEndpoint"}
+      - {name: "Centreon", type: "MonitoringTool"}
+      - {name: "Backup quotidien (rétention 30j, RPO 24h)", type: "BackupPolicy"}
+    expected_relations:
+      - {from: "vm-app-prod-01", to: "Production (Prod)", type: "DEPLOYED_IN"}
+      - {from: "vm-app-prod-01", to: "RHEL 9.2", type: "HAS_OS"}
+      - {from: "tomcat-portail-prod-01", to: "vm-app-prod-01", type: "RUNS_ON"}
+      - {from: "vm-db-prod-02", to: "Windows Server 2022", type: "HAS_OS"}
+      - {from: "sqlsrv-erp-prod", to: "vm-db-prod-02", type: "RUNS_ON"}
+      - {from: "aloha-prod-02", to: "vip-portail-prod (10.10.10.10:443)", type: "EXPOSES"}
+      - {from: "aloha-prod-02", to: "tomcat-portail-prod-01", type: "LOAD_BALANCES"}
+      - {from: "tomcat-portail-prod-01", to: "sqlsrv-erp-prod", type: "USES_DATABASE"}
+      - {from: "sqlsrv-erp-prod", to: "Backup quotidien (rétention 30j, RPO 24h)", type: "BACKED_UP_BY"}
+      - {from: "vm-db-prod-02", to: "Centreon", type: "MONITORED_BY"}
+
+  - context: "Architecture d'exploitation (HAProxy + PostgreSQL replication)"
+    input: |
+      Le service Facturation s'appuie sur l'application billing-api.
+      billing-api tourne sur vm-app-prod-01 (RHEL 9.2) et est publié via haproxy-prod-01 (HAProxy 2.6)
+      sur l'endpoint https://facturation.exemple.fr.
+      billing-api utilise pg-billing-prod (PostgreSQL 15) qui réplique vers pg-billing-dr.
+      SLA : Disponibilité 99.9%, GTI 15 minutes.
+      Runbook : Procédure de bascule PostgreSQL (streaming replication).
+    expected_entities:
+      - {name: "Service Facturation", type: "BusinessService"}
+      - {name: "billing-api", type: "Application"}
+      - {name: "vm-app-prod-01 (8 vCPU, 32Go, Prod)", type: "VirtualMachine"}
+      - {name: "haproxy-prod-01 (HAProxy 2.6, Prod)", type: "LoadBalancerInstance"}
+      - {name: "HAProxy", type: "LoadBalancerProduct"}
+      - {name: "https://facturation.exemple.fr", type: "ServiceEndpoint"}
+      - {name: "pg-billing-prod (PostgreSQL 15, Prod)", type: "DatabaseInstance"}
+      - {name: "PostgreSQL", type: "DatabaseEngine"}
+      - {name: "pg-billing-dr (PostgreSQL 15, DR)", type: "DatabaseInstance"}
+      - {name: "Disponibilité 99.9%", type: "SLA"}
+      - {name: "GTI 15 minutes", type: "SLA"}
+      - {name: "Procédure de bascule PostgreSQL (streaming replication)", type: "Runbook"}
+    expected_relations:
+      - {from: "billing-api", to: "Service Facturation", type: "PART_OF"}
+      - {from: "billing-api", to: "vm-app-prod-01", type: "RUNS_ON"}
+      - {from: "haproxy-prod-01", to: "https://facturation.exemple.fr", type: "EXPOSES"}
+      - {from: "haproxy-prod-01", to: "billing-api", type: "LOAD_BALANCES"}
+      - {from: "billing-api", to: "pg-billing-prod", type: "USES_DATABASE"}
+      - {from: "pg-billing-prod", to: "pg-billing-dr", type: "REPLICATED_TO"}
+      - {from: "Service Facturation", to: "Disponibilité 99.9%", type: "HAS_SLA"}
+      - {from: "Service Facturation", to: "GTI 15 minutes", type: "HAS_SLA"}
+      - {from: "pg-billing-prod", to: "Procédure de bascule PostgreSQL (streaming replication)", type: "DOCUMENTED_BY"}
