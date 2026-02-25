@@ -66,7 +66,7 @@ services:
       - CRS_ENABLE_BODY_INSPECTION=1
     volumes:
       - ./waf/Caddyfile:/etc/caddy/Caddyfile:ro
-      - waf_data:/data      # Certificats TLS Let's Encrypt stockés ici
+      - waf_data:/data # Certificats TLS Let's Encrypt stockés ici
       - waf_config:/config
     depends_on:
       mcp-memory:
@@ -119,7 +119,11 @@ services:
       # /sse est un endpoint SSE (streaming infini) : curl reçoit le HTTP 200 puis
       # timeout car le flux ne se ferme jamais → exit code 28.
       # On accepte exit 0 (succès) OU exit 28 (timeout après connexion réussie) = healthy.
-      test: ["CMD-SHELL", "curl -sf http://localhost:8002/sse --max-time 2 -o /dev/null 2>/dev/null; rc=$$?; [ $$rc -eq 0 ] || [ $$rc -eq 28 ]"]
+      test:
+        [
+          "CMD-SHELL",
+          "curl -sf http://localhost:8002/sse --max-time 2 -o /dev/null 2>/dev/null; rc=$$?; [ $$rc -eq 0 ] || [ $$rc -eq 28 ]",
+        ]
       interval: 30s
       timeout: 10s
       start_period: 10s
@@ -128,6 +132,8 @@ services:
       neo4j:
         condition: service_healthy
       qdrant:
+        condition: service_healthy
+      minio:
         condition: service_healthy
     restart: unless-stopped
     networks:
@@ -156,12 +162,66 @@ services:
       - neo4j_data:/data
       - neo4j_logs:/logs
     healthcheck:
-      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:7474 || exit 1"]
+      test:
+        [
+          "CMD-SHELL",
+          "wget --no-verbose --tries=1 --spider http://localhost:7474 || exit 1",
+        ]
       interval: 10s
       timeout: 5s
       retries: 10
       start_period: 30s
     restart: unless-stopped
+    networks:
+      - mcp-network
+
+  # ===========================================================================
+  # MinIO - Stockage objet S3-compatible (local dev, interne uniquement)
+  # ===========================================================================
+  minio:
+    image: minio/minio:latest
+    container_name: mcp-memory-minio
+    # NOTE: Pas de section "ports:" — accessible uniquement via mcp-network
+    # Pour le debug local (console web + API), décommenter :
+    # ports:
+    #   - "127.0.0.1:9000:9000"   # S3 API
+    #   - "127.0.0.1:9001:9001"   # Console Web (http://localhost:9001)
+    environment:
+      - MINIO_ROOT_USER=${S3_ACCESS_KEY_ID:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${S3_SECRET_ACCESS_KEY:-minioadmin}
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - mcp-network
+
+  # ===========================================================================
+  # MinIO Init - Création automatique du bucket
+  # ===========================================================================
+  minio-init:
+    image: minio/mc:latest
+    container_name: mcp-memory-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 $${S3_ACCESS_KEY_ID} $${S3_SECRET_ACCESS_KEY};
+      mc mb --ignore-existing local/$${S3_BUCKET_NAME};
+      echo 'Bucket $${S3_BUCKET_NAME} is ready';
+      exit 0;
+      "
+    environment:
+      - S3_ACCESS_KEY_ID=${S3_ACCESS_KEY_ID:-minioadmin}
+      - S3_SECRET_ACCESS_KEY=${S3_SECRET_ACCESS_KEY:-minioadmin}
+      - S3_BUCKET_NAME=${S3_BUCKET_NAME:-mcp-memory-docs}
     networks:
       - mcp-network
 
@@ -197,6 +257,8 @@ volumes:
     name: mcp-memory-neo4j-logs
   qdrant_data:
     name: mcp-memory-qdrant-data
+  minio_data:
+    name: mcp-memory-minio-data
   waf_data:
     name: mcp-memory-waf-data
   waf_config:

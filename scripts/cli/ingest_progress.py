@@ -13,24 +13,24 @@ Composants :
   - run_ingest_with_progress()  : Coroutine complète (Rich Live + appel MCP)
 """
 
+import asyncio
 import re
 import time
-import asyncio
 
 from rich.live import Live
 from rich.text import Text
 
-from .display import console, show_ingest_result, show_error
-
+from .display import console
 
 # =============================================================================
 # État de progression
 # =============================================================================
 
+
 def create_progress_state() -> dict:
     """Crée un nouvel état de progression pour une ingestion."""
     return {
-        "phase": "init",          # init, upload, extract_text, extraction, neo4j, chunking, embedding, qdrant, done
+        "phase": "init",  # init, upload, extract_text, extraction, neo4j, chunking, embedding, qdrant, done
         "phase_label": "⏳ Connexion...",
         "extraction_current": 0,
         "extraction_total": 0,
@@ -47,6 +47,7 @@ def create_progress_state() -> dict:
 # Barre de progression ASCII
 # =============================================================================
 
+
 def make_progress_bar(current: int, total: int, width: int = 20) -> str:
     """
     Génère une barre de progression ASCII.
@@ -58,12 +59,13 @@ def make_progress_bar(current: int, total: int, width: int = 20) -> str:
     pct = min(current / total, 1.0)
     filled = int(width * pct)
     bar = "█" * filled + "░" * (width - filled)
-    return f"{bar} {pct*100:.0f}%"
+    return f"{bar} {pct * 100:.0f}%"
 
 
 # =============================================================================
 # Parser des messages SSE serveur
 # =============================================================================
+
 
 def create_progress_callback(state: dict):
     """
@@ -100,24 +102,24 @@ def create_progress_callback(state: dict):
 
         # Phase extraction LLM
         elif "Extraction LLM:" in msg:
-            m = re.search(r'(\d+)\s*chunks?\s*\(', msg)
+            m = re.search(r"(\d+)\s*chunks?\s*\(", msg)
             if m:
                 st["extraction_total"] = int(m.group(1))
             st["phase"] = "extraction"
             st["phase_label"] = "🔍 Extraction LLM"
             st["extraction_current"] = 0
         elif "Chunk " in msg and "terminé" in msg:
-            m = re.search(r'Chunk\s+(\d+)/(\d+)', msg)
+            m = re.search(r"Chunk\s+(\d+)/(\d+)", msg)
             if m:
                 st["extraction_current"] = int(m.group(1))
                 st["extraction_total"] = int(m.group(2))
             # Extraire cumul entités/relations
-            m2 = re.search(r'cumul:\s*(\d+)E\s*(\d+)R', msg)
+            m2 = re.search(r"cumul:\s*(\d+)E\s*(\d+)R", msg)
             if m2:
                 st["entities"] = int(m2.group(1))
                 st["relations"] = int(m2.group(2))
         elif "Extraction terminée" in msg:
-            m = re.search(r'(\d+)\s*entités.*?(\d+)\s*relations', msg)
+            m = re.search(r"(\d+)\s*entités.*?(\d+)\s*relations", msg)
             if m:
                 st["entities"] = int(m.group(1))
                 st["relations"] = int(m.group(2))
@@ -134,7 +136,7 @@ def create_progress_callback(state: dict):
             st["phase"] = "chunking"
             st["phase_label"] = "🧩 Chunking RAG"
         elif "Chunking terminé" in msg:
-            m = re.search(r'(\d+)\s*chunks', msg)
+            m = re.search(r"(\d+)\s*chunks", msg)
             if m:
                 st["chunks_rag"] = int(m.group(1))
             st["phase_label"] = f"✅ {st['chunks_rag']} chunks RAG"
@@ -142,13 +144,13 @@ def create_progress_callback(state: dict):
         # Phase RAG : embedding
         elif "Embedding batch" in msg:
             st["phase"] = "embedding"
-            m = re.search(r'batch\s+(\d+)/(\d+)', msg)
+            m = re.search(r"batch\s+(\d+)/(\d+)", msg)
             if m:
                 st["embedding_current"] = int(m.group(1)) - 1  # en cours, pas terminé
                 st["embedding_total"] = int(m.group(2))
             st["phase_label"] = "🔢 Embedding"
         elif "Batch " in msg and "OK" in msg:
-            m = re.search(r'Batch\s+(\d+)/(\d+)', msg)
+            m = re.search(r"Batch\s+(\d+)/(\d+)", msg)
             if m:
                 st["embedding_current"] = int(m.group(1))
                 st["embedding_total"] = int(m.group(2))
@@ -172,6 +174,7 @@ def create_progress_callback(state: dict):
 # =============================================================================
 # Coroutine principale : ingestion avec affichage Rich Live
 # =============================================================================
+
 
 async def run_ingest_with_progress(client, tool_args: dict) -> dict:
     """
@@ -208,13 +211,17 @@ async def run_ingest_with_progress(client, tool_args: dict) -> dict:
                 # Barre extraction LLM
                 if st["extraction_total"] > 0:
                     bar = make_progress_bar(st["extraction_current"], st["extraction_total"])
-                    color = "green" if st["extraction_current"] >= st["extraction_total"] else "yellow"
+                    color = (
+                        "green" if st["extraction_current"] >= st["extraction_total"] else "yellow"
+                    )
                     lines.append(
                         f"  [{color}]🔍 Extraction: {bar} "
                         f"({st['extraction_current']}/{st['extraction_total']} chunks)[/{color}]"
                     )
                     if st["entities"] or st["relations"]:
-                        lines.append(f"  [dim]   → {st['entities']} entités, {st['relations']} relations[/dim]")
+                        lines.append(
+                            f"  [dim]   → {st['entities']} entités, {st['relations']} relations[/dim]"
+                        )
 
                 # Barre embedding
                 if st["embedding_total"] > 0:
@@ -231,9 +238,7 @@ async def run_ingest_with_progress(client, tool_args: dict) -> dict:
 
         display_task = asyncio.create_task(_update_display())
         try:
-            result = await client.call_tool(
-                "memory_ingest", tool_args, on_progress=on_progress
-            )
+            result = await client.call_tool("memory_ingest", tool_args, on_progress=on_progress)
         finally:
             display_task.cancel()
 

@@ -1,11 +1,11 @@
 # =============================================================================
-# MCP Memory Service - Dockerfile
+# MCP Memory Service - Dockerfile (uv)
 # =============================================================================
 # Build   : docker build -t mcp-memory .
 # Run     : docker run -p 8002:8002 --env-file .env mcp-memory
 # =============================================================================
 
-FROM python:3.11-slim
+FROM python:3.13-slim
 
 # Métadonnées
 LABEL maintainer="Cloud Temple"
@@ -17,6 +17,9 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
 
+# Installer uv (copié depuis l'image officielle)
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
 # Répertoire de travail
 WORKDIR /app
 
@@ -27,10 +30,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Copie et installation des dépendances Python
-COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir -r requirements.txt
+# Copie des fichiers de dépendances (cache layer Docker)
+# README.md est requis par hatchling (déclaré dans pyproject.toml → readme)
+COPY pyproject.toml uv.lock README.md ./
+
+# Installation des dépendances via uv (lockfile = builds reproductibles)
+# --frozen : ne jamais mettre à jour le lockfile, échouer s'il est désynchronisé
+# --no-install-project : installer uniquement les deps, pas le projet lui-même
+# --no-dev : ignorer les dépendances de développement
+RUN uv sync --frozen --no-install-project --no-dev
 
 # Créer un utilisateur non-root pour la sécurité
 RUN groupadd -r mcp && useradd -r -g mcp -d /app -s /sbin/nologin mcp
@@ -40,6 +48,9 @@ COPY ONTOLOGIES/ ./ONTOLOGIES/
 
 # Copie du code source
 COPY src/ ./src/
+
+# Installer le projet lui-même (maintenant que le code source est là)
+RUN uv sync --frozen --no-dev
 
 # Donner les droits à l'utilisateur mcp
 RUN chown -R mcp:mcp /app
@@ -57,6 +68,6 @@ USER mcp
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD curl -sf http://localhost:8002/sse --max-time 2 -o /dev/null 2>/dev/null; rc=$?; [ $rc -eq 0 ] || [ $rc -eq 28 ]
 
-# Point d'entrée
-ENTRYPOINT ["python", "-m", "src.mcp_memory.server"]
+# Point d'entrée — uv run active le venv automatiquement
+ENTRYPOINT ["uv", "run", "python", "-m", "src.mcp_memory.server"]
 CMD ["--port", "8002"]

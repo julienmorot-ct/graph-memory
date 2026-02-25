@@ -34,30 +34,39 @@ Commandes :
   exit              Quitter
 """
 
-import sys
-import json
 import asyncio
-import os
 import base64
-from collections import Counter
+import json
+import os
 
-from rich.console import Console
-from rich.table import Table
 from rich.panel import Panel
 from rich.syntax import Syntax
-from rich.markdown import Markdown
+from rich.table import Table
 
 from .client import MCPClient
 from .display import (
-    show_memories_table, show_documents_table, show_graph_summary,
-    show_ingest_result, show_error, show_success, show_warning,
-    show_answer, show_query_result, show_entity_context, show_storage_check,
-    show_cleanup_result, show_tokens_table, show_token_created,
-    show_token_updated, show_ingest_preflight, show_entities_by_type,
-    show_relations_by_type, format_size, console
+    console,
+    format_size,
+    show_answer,
+    show_cleanup_result,
+    show_documents_table,
+    show_entities_by_type,
+    show_entity_context,
+    show_error,
+    show_graph_summary,
+    show_ingest_preflight,
+    show_ingest_result,
+    show_memories_table,
+    show_query_result,
+    show_relations_by_type,
+    show_storage_check,
+    show_success,
+    show_token_created,
+    show_token_updated,
+    show_tokens_table,
+    show_warning,
 )
 from .ingest_progress import run_ingest_with_progress
-
 
 # =============================================================================
 # Autocomplétion prompt_toolkit
@@ -65,22 +74,57 @@ from .ingest_progress import run_ingest_with_progress
 
 # Liste des commandes du shell
 SHELL_COMMANDS = [
-    "help", "about", "health", "list", "use", "info", "graph", "docs",
-    "entities", "entity", "relations", "ask", "query", "check", "cleanup",
-    "create", "ingest", "ingestdir", "deldoc", "ontologies",
-    "tokens", "token-create", "token-revoke", "token-grant",
-    "token-ungrant", "token-set",
-    "limit", "delete", "debug", "clear", "exit", "quit",
-    "--json", "--include-documents", "--force", "--exclude", "--confirm",
-    "backup", "backup-create", "backup-list", "backup-restore",
-    "backup-download", "backup-delete",
+    "help",
+    "about",
+    "health",
+    "list",
+    "use",
+    "info",
+    "graph",
+    "docs",
+    "entities",
+    "entity",
+    "relations",
+    "ask",
+    "query",
+    "check",
+    "cleanup",
+    "create",
+    "ingest",
+    "ingestdir",
+    "deldoc",
+    "ontologies",
+    "tokens",
+    "token-create",
+    "token-revoke",
+    "token-grant",
+    "token-ungrant",
+    "token-set",
+    "limit",
+    "delete",
+    "debug",
+    "clear",
+    "exit",
+    "quit",
+    "--json",
+    "--include-documents",
+    "--force",
+    "--exclude",
+    "--confirm",
+    "backup",
+    "backup-create",
+    "backup-list",
+    "backup-restore",
+    "backup-download",
+    "backup-delete",
 ]
 
 
 def _get_completer():
     """Crée un completer pour prompt_toolkit."""
     try:
-        from prompt_toolkit.completion import WordCompleter
+        from prompt_toolkit.completion import WordCompleter  # type: ignore[import-unresolved]
+
         return WordCompleter(SHELL_COMMANDS, ignore_case=True)
     except ImportError:
         return None
@@ -89,7 +133,8 @@ def _get_completer():
 def _get_history():
     """Crée un historique persistant pour prompt_toolkit."""
     try:
-        from prompt_toolkit.history import FileHistory
+        from prompt_toolkit.history import FileHistory  # type: ignore[import-unresolved]
+
         history_path = os.path.expanduser("~/.mcp_memory_history")
         return FileHistory(history_path)
     except ImportError:
@@ -108,8 +153,9 @@ def _prompt_input(prompt_text: str, completer=None, history=None) -> str:
       - Ctrl+C : annuler la ligne
     """
     try:
-        from prompt_toolkit import prompt as pt_prompt
-        from prompt_toolkit.formatted_text import HTML
+        from prompt_toolkit import prompt as pt_prompt  # type: ignore[import-unresolved]
+        from prompt_toolkit.formatted_text import HTML  # type: ignore[import-unresolved]
+
         return pt_prompt(
             HTML(prompt_text),
             completer=completer,
@@ -124,6 +170,7 @@ def _prompt_input(prompt_text: str, completer=None, history=None) -> str:
 # =============================================================================
 # Résolution du memory_id
 # =============================================================================
+
 
 def _resolve_memory_id(candidate: str, known_ids: list) -> str:
     """
@@ -155,6 +202,7 @@ def _resolve_memory_id(candidate: str, known_ids: list) -> str:
 # =============================================================================
 # Handlers de commandes
 # =============================================================================
+
 
 def _json_dump(data: dict):
     """Affiche un dict en JSON brut sur stdout (sans Rich)."""
@@ -283,9 +331,9 @@ async def cmd_entity(client: MCPClient, state: dict, args: str, json_output: boo
         show_warning("Usage: entity <nom de l'entité>")
         return
 
-    result = await client.call_tool("memory_get_context", {
-        "memory_id": mem, "entity_name": args, "depth": 1
-    })
+    result = await client.call_tool(
+        "memory_get_context", {"memory_id": mem, "entity_name": args, "depth": 1}
+    )
     if json_output:
         _json_dump(result)
         return
@@ -299,7 +347,7 @@ async def cmd_relations(client: MCPClient, state: dict, args: str = "", json_out
     """
     Affiche les relations. Sans argument : résumé par type.
     Avec un type en argument : détail de toutes les relations de ce type.
-    
+
     Exemples :
         relations              → résumé par type
         relations MENTIONS     → toutes les relations MENTIONS
@@ -323,7 +371,9 @@ async def cmd_relations(client: MCPClient, state: dict, args: str = "", json_out
     show_relations_by_type(result, type_filter=type_filter)
 
 
-async def cmd_ask(client: MCPClient, state: dict, args: str, debug: bool, json_output: bool = False):
+async def cmd_ask(
+    client: MCPClient, state: dict, args: str, debug: bool, json_output: bool = False
+):
     """Pose une question sur la mémoire courante."""
     mem = state.get("memory")
     if not mem:
@@ -334,9 +384,9 @@ async def cmd_ask(client: MCPClient, state: dict, args: str, debug: bool, json_o
         return
 
     limit = state.get("limit", 10)
-    result = await client.call_tool("question_answer", {
-        "memory_id": mem, "question": args, "limit": limit
-    })
+    result = await client.call_tool(
+        "question_answer", {"memory_id": mem, "question": args, "limit": limit}
+    )
 
     if json_output:
         _json_dump(result)
@@ -355,7 +405,9 @@ async def cmd_ask(client: MCPClient, state: dict, args: str, debug: bool, json_o
         show_error(result.get("message", "Erreur"))
 
 
-async def cmd_query(client: MCPClient, state: dict, args: str, debug: bool, json_output: bool = False):
+async def cmd_query(
+    client: MCPClient, state: dict, args: str, debug: bool, json_output: bool = False
+):
     """Interroge la mémoire courante et retourne les données structurées (sans LLM)."""
     mem = state.get("memory")
     if not mem:
@@ -366,9 +418,9 @@ async def cmd_query(client: MCPClient, state: dict, args: str, debug: bool, json
         return
 
     limit = state.get("limit", 10)
-    result = await client.call_tool("memory_query", {
-        "memory_id": mem, "query": args, "limit": limit
-    })
+    result = await client.call_tool(
+        "memory_query", {"memory_id": mem, "query": args, "limit": limit}
+    )
 
     if json_output:
         _json_dump(result)
@@ -376,6 +428,7 @@ async def cmd_query(client: MCPClient, state: dict, args: str, debug: bool, json
 
     if debug:
         from rich.syntax import Syntax
+
         console.print(Syntax(json.dumps(result, indent=2, ensure_ascii=False), "json"))
 
     if result.get("status") == "ok":
@@ -387,7 +440,7 @@ async def cmd_query(client: MCPClient, state: dict, args: str, debug: bool, json
 async def cmd_check(client: MCPClient, state: dict, args: str):
     """
     Vérifie la cohérence S3 / graphe.
-    
+
     Sans argument : vérifie toutes les mémoires.
     Avec un memory_id : vérifie uniquement cette mémoire.
     """
@@ -396,7 +449,7 @@ async def cmd_check(client: MCPClient, state: dict, args: str):
         params["memory_id"] = args.strip()
     elif state.get("memory"):
         params["memory_id"] = state["memory"]
-    
+
     console.print("[dim]🔍 Vérification S3 en cours...[/dim]")
     result = await client.call_tool("storage_check", params)
     show_storage_check(result)
@@ -405,7 +458,7 @@ async def cmd_check(client: MCPClient, state: dict, args: str):
 async def cmd_cleanup(client: MCPClient, state: dict, force: bool = False):
     """
     Nettoie les fichiers orphelins sur S3.
-    
+
     force=False : dry run (liste seulement).
     force=True : supprime réellement.
     """
@@ -417,6 +470,7 @@ async def cmd_cleanup(client: MCPClient, state: dict, force: bool = False):
 async def cmd_about(client: MCPClient, state: dict):
     """Affiche l'identité et les capacités du service MCP Memory."""
     from .display import show_about
+
     result = await client.call_tool("system_about", {})
     if result.get("status") == "ok":
         show_about(result)
@@ -429,12 +483,15 @@ async def cmd_health(client: MCPClient, state: dict):
     try:
         result = await client.list_memories()
         if result.get("status") == "ok":
-            console.print(Panel.fit(
-                f"[bold green]✅ Serveur OK[/bold green]\n\n"
-                f"URL: [cyan]{client.base_url}[/cyan]\n"
-                f"Mémoires: [green]{result.get('count', 0)}[/green]",
-                title="🏥 État du serveur", border_style="green"
-            ))
+            console.print(
+                Panel.fit(
+                    f"[bold green]✅ Serveur OK[/bold green]\n\n"
+                    f"URL: [cyan]{client.base_url}[/cyan]\n"
+                    f"Mémoires: [green]{result.get('count', 0)}[/green]",
+                    title="🏥 État du serveur",
+                    border_style="green",
+                )
+            )
         else:
             show_error(f"Serveur répond mais erreur: {result.get('message')}")
     except Exception as e:
@@ -444,13 +501,13 @@ async def cmd_health(client: MCPClient, state: dict):
 async def cmd_create(client: MCPClient, state: dict, args: str):
     """
     Crée une nouvelle mémoire.
-    
+
     Usage: create <memory_id> <ontology> [nom] [description]
     Exemple: create JURIDIQUE legal "Corpus Juridique" "Documents contractuels"
     """
     if not args:
         show_warning("Usage: create <memory_id> <ontology> [nom] [description]")
-        console.print("[dim]Exemple: create JURIDIQUE legal \"Corpus Juridique\"[/dim]")
+        console.print('[dim]Exemple: create JURIDIQUE legal "Corpus Juridique"[/dim]')
         return
 
     parts = args.split(maxsplit=3)
@@ -463,12 +520,15 @@ async def cmd_create(client: MCPClient, state: dict, args: str):
     name = parts[2].strip('"').strip("'") if len(parts) > 2 else memory_id
     description = parts[3].strip('"').strip("'") if len(parts) > 3 else ""
 
-    result = await client.call_tool("memory_create", {
-        "memory_id": memory_id,
-        "name": name,
-        "description": description,
-        "ontology": ontology,
-    })
+    result = await client.call_tool(
+        "memory_create",
+        {
+            "memory_id": memory_id,
+            "name": name,
+            "description": description,
+            "ontology": ontology,
+        },
+    )
     if result.get("status") in ("ok", "created"):
         show_success(f"Mémoire '{memory_id}' créée (ontologie: {result.get('ontology')})")
         state["memory"] = memory_id
@@ -480,9 +540,9 @@ async def cmd_create(client: MCPClient, state: dict, args: str):
 async def cmd_ingest(client: MCPClient, state: dict, args: str):
     """
     Ingère un document dans la mémoire courante.
-    
+
     Usage: ingest <chemin_fichier> [--force]
-    
+
     Affiche une progression en temps réel :
     - Phase courante (S3, texte, extraction LLM, Neo4j, chunking, embedding, Qdrant)
     - Barres de progression pour extraction LLM et embedding
@@ -505,7 +565,7 @@ async def cmd_ingest(client: MCPClient, state: dict, args: str):
 
     filename = os.path.basename(file_path)
     file_size = os.path.getsize(file_path)
-    file_ext = filename.lower().rsplit('.', 1)[-1] if '.' in filename else '?'
+    file_ext = filename.lower().rsplit(".", 1)[-1] if "." in filename else "?"
 
     # Affichage pré-vol (partagé)
     show_ingest_preflight(filename, file_size, file_ext, mem, force)
@@ -523,19 +583,24 @@ async def cmd_ingest(client: MCPClient, state: dict, args: str):
         source_modified_at = datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat()
 
         # Progression temps réel (partagée via ingest_progress.py)
-        result = await run_ingest_with_progress(client, {
-            "memory_id": mem,
-            "content_base64": content_b64,
-            "filename": filename,
-            "force": force,
-            "source_path": source_path,
-            "source_modified_at": source_modified_at,
-        })
+        result = await run_ingest_with_progress(
+            client,
+            {
+                "memory_id": mem,
+                "content_base64": content_b64,
+                "filename": filename,
+                "force": force,
+                "source_path": source_path,
+                "source_modified_at": source_modified_at,
+            },
+        )
 
         if result.get("status") == "ok":
             show_ingest_result(result)
         elif result.get("status") == "already_exists":
-            console.print(f"[yellow]⚠️ Déjà ingéré: {result.get('document_id')} (--force pour réingérer)[/yellow]")
+            console.print(
+                f"[yellow]⚠️ Déjà ingéré: {result.get('document_id')} (--force pour réingérer)[/yellow]"
+            )
         else:
             show_error(result.get("message", str(result)))
     except Exception as e:
@@ -545,9 +610,9 @@ async def cmd_ingest(client: MCPClient, state: dict, args: str):
 async def cmd_ingestdir(client: MCPClient, state: dict, args: str):
     """
     Ingère un répertoire entier dans la mémoire courante (récursif).
-    
+
     Usage: ingestdir <chemin> [--exclude PATTERN]... [--confirm] [--force]
-    
+
     Exemples:
         ingestdir ./DOCS
         ingestdir DOCS --exclude "llmaas/licences/*" --exclude "*changelog*"
@@ -556,6 +621,7 @@ async def cmd_ingestdir(client: MCPClient, state: dict, args: str):
     import fnmatch
     import shlex
     from pathlib import Path
+
     from rich.prompt import Confirm
 
     SUPPORTED_EXTENSIONS = {".txt", ".md", ".html", ".docx", ".pdf", ".csv"}
@@ -579,7 +645,7 @@ async def cmd_ingestdir(client: MCPClient, state: dict, args: str):
     force_mode = False
     exclude_patterns = []
     positional = []
-    
+
     i = 0
     while i < len(tokens):
         tok = tokens[i]
@@ -600,13 +666,13 @@ async def cmd_ingestdir(client: MCPClient, state: dict, args: str):
         else:
             positional.append(tok)
         i += 1
-    
+
     dir_path = positional[0] if positional else ""
-    
+
     if not dir_path:
         show_warning("Usage: ingestdir <chemin> [--exclude PATTERN]... [--confirm] [--force]")
         return
-    
+
     if not os.path.isdir(dir_path):
         show_error(f"Répertoire non trouvé: {dir_path}")
         return
@@ -636,12 +702,14 @@ async def cmd_ingestdir(client: MCPClient, state: dict, args: str):
                 unsupported_files.append(rel_path)
                 continue
 
-            all_files.append({
-                "path": fpath,
-                "rel_path": rel_path,
-                "filename": fname,
-                "size": os.path.getsize(fpath),
-            })
+            all_files.append(
+                {
+                    "path": fpath,
+                    "rel_path": rel_path,
+                    "filename": fname,
+                    "size": os.path.getsize(fpath),
+                }
+            )
 
     if not all_files:
         show_warning(f"Aucun fichier supporté dans {dir_path}")
@@ -666,17 +734,19 @@ async def cmd_ingestdir(client: MCPClient, state: dict, args: str):
 
     # --- 3. Résumé ---
     total_size = sum(f["size"] for f in to_ingest)
-    console.print(Panel.fit(
-        f"[bold]Répertoire:[/bold]  [cyan]{os.path.abspath(dir_path)}[/cyan]\n"
-        f"[bold]Mémoire:[/bold]     [cyan]{mem}[/cyan]\n\n"
-        f"[bold]Fichiers trouvés:[/bold]  [green]{len(all_files)}[/green]"
-        + (f"  [yellow]Exclus: {len(excluded_files)}[/yellow]" if excluded_files else "")
-        + (f"  [dim]Non supportés: {len(unsupported_files)}[/dim]" if unsupported_files else "")
-        + (f"  [yellow]Déjà ingérés: {len(already)}[/yellow]" if already else "")
-        + f"\n[bold]À ingérer:[/bold]      [green bold]{len(to_ingest)}[/green bold]",
-        title="📁 Import en masse",
-        border_style="blue",
-    ))
+    console.print(
+        Panel.fit(
+            f"[bold]Répertoire:[/bold]  [cyan]{os.path.abspath(dir_path)}[/cyan]\n"
+            f"[bold]Mémoire:[/bold]     [cyan]{mem}[/cyan]\n\n"
+            f"[bold]Fichiers trouvés:[/bold]  [green]{len(all_files)}[/green]"
+            + (f"  [yellow]Exclus: {len(excluded_files)}[/yellow]" if excluded_files else "")
+            + (f"  [dim]Non supportés: {len(unsupported_files)}[/dim]" if unsupported_files else "")
+            + (f"  [yellow]Déjà ingérés: {len(already)}[/yellow]" if already else "")
+            + f"\n[bold]À ingérer:[/bold]      [green bold]{len(to_ingest)}[/green bold]",
+            title="📁 Import en masse",
+            border_style="blue",
+        )
+    )
 
     if not to_ingest:
         show_success("Tous les fichiers sont déjà ingérés !")
@@ -698,28 +768,33 @@ async def cmd_ingestdir(client: MCPClient, state: dict, args: str):
                 continue
 
         file_size = f["size"]
-        file_ext = f["filename"].lower().rsplit('.', 1)[-1] if '.' in f["filename"] else '?'
-        console.print(f"\n[bold cyan][{i}/{len(to_ingest)}][/bold cyan] 📥 [bold]{f['rel_path']}[/bold] ({format_size(file_size)})")
+        file_ext = f["filename"].lower().rsplit(".", 1)[-1] if "." in f["filename"] else "?"
+        console.print(
+            f"\n[bold cyan][{i}/{len(to_ingest)}][/bold cyan] 📥 [bold]{f['rel_path']}[/bold] ({format_size(file_size)})"
+        )
         try:
             from datetime import datetime, timezone
 
             with open(f["path"], "rb") as fh:
                 content_bytes = fh.read()
             content_b64 = base64.b64encode(content_bytes).decode("utf-8")
-            
+
             # Métadonnées enrichies : chemin relatif dans l'arborescence + date de modification
             mtime = os.path.getmtime(f["path"])
             source_modified_at = datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat()
 
             # Progression temps réel (même UX que ingest unitaire)
-            result = await run_ingest_with_progress(client, {
-                "memory_id": mem,
-                "content_base64": content_b64,
-                "filename": f["filename"],
-                "force": force_mode,
-                "source_path": f["rel_path"],
-                "source_modified_at": source_modified_at,
-            })
+            result = await run_ingest_with_progress(
+                client,
+                {
+                    "memory_id": mem,
+                    "content_base64": content_b64,
+                    "filename": f["filename"],
+                    "force": force_mode,
+                    "source_path": f["rel_path"],
+                    "source_modified_at": source_modified_at,
+                },
+            )
 
             if result.get("status") == "ok":
                 elapsed = result.get("_elapsed_seconds", 0)
@@ -745,19 +820,21 @@ async def cmd_ingestdir(client: MCPClient, state: dict, args: str):
             errors += 1
 
     # --- 5. Résumé final ---
-    console.print(Panel.fit(
-        f"[green]✅ Ingérés: {ingested}[/green]  "
-        f"[yellow]⏭️ Skippés: {skipped}[/yellow]  "
-        f"[red]❌ Erreurs: {errors}[/red]",
-        title="📊 Résultat",
-        border_style="green" if errors == 0 else "yellow",
-    ))
+    console.print(
+        Panel.fit(
+            f"[green]✅ Ingérés: {ingested}[/green]  "
+            f"[yellow]⏭️ Skippés: {skipped}[/yellow]  "
+            f"[red]❌ Erreurs: {errors}[/red]",
+            title="📊 Résultat",
+            border_style="green" if errors == 0 else "yellow",
+        )
+    )
 
 
 async def cmd_deldoc(client: MCPClient, state: dict, args: str):
     """
     Supprime un document de la mémoire courante.
-    
+
     Usage: deldoc <document_id>
     """
     from rich.prompt import Confirm
@@ -776,11 +853,11 @@ async def cmd_deldoc(client: MCPClient, state: dict, args: str):
         console.print("[dim]Annulé.[/dim]")
         return
 
-    result = await client.call_tool("document_delete", {
-        "memory_id": mem, "document_id": doc_id
-    })
+    result = await client.call_tool("document_delete", {"memory_id": mem, "document_id": doc_id})
     if result.get("status") in ("ok", "deleted"):
-        show_success(f"Document supprimé ({result.get('entities_deleted', 0)} entités orphelines nettoyées)")
+        show_success(
+            f"Document supprimé ({result.get('entities_deleted', 0)} entités orphelines nettoyées)"
+        )
     else:
         show_error(result.get("message", str(result)))
 
@@ -798,7 +875,7 @@ async def cmd_ontologies(client: MCPClient, state: dict):
             table.add_row(
                 o.get("name", ""),
                 o.get("description", "")[:50],
-                f"{o.get('entity_types_count', 0)} entités, {o.get('relation_types_count', 0)} relations"
+                f"{o.get('entity_types_count', 0)} entités, {o.get('relation_types_count', 0)} relations",
             )
         console.print(table)
     else:
@@ -808,6 +885,7 @@ async def cmd_ontologies(client: MCPClient, state: dict):
 # =============================================================================
 # Handlers token
 # =============================================================================
+
 
 async def cmd_tokens(client: MCPClient, state: dict):
     """Liste tous les tokens actifs."""
@@ -834,14 +912,16 @@ async def cmd_token_create(client: MCPClient, state: dict, args: str):
         console.print("[dim]Exemples:[/dim]")
         console.print("[dim]  token-create quoteflow[/dim]")
         console.print("[dim]  token-create quoteflow --email user@example.com[/dim]")
-        console.print("[dim]  token-create quoteflow read,write JURIDIQUE,CLOUD --email user@example.com[/dim]")
+        console.print(
+            "[dim]  token-create quoteflow read,write JURIDIQUE,CLOUD --email user@example.com[/dim]"
+        )
         return
 
     # Extraire --email si présent
     email = None
     if "--email" in args:
         idx = args.index("--email")
-        after = args[idx + 7:].strip()
+        after = args[idx + 7 :].strip()
         email_parts = after.split(maxsplit=1)
         if email_parts:
             email = email_parts[0]
@@ -914,10 +994,13 @@ async def cmd_token_grant(client: MCPClient, state: dict, args: str):
     hash_prefix = parts[0]
     memories = parts[1:]
 
-    result = await client.call_tool("admin_update_token", {
-        "token_hash_prefix": hash_prefix,
-        "add_memories": memories,
-    })
+    result = await client.call_tool(
+        "admin_update_token",
+        {
+            "token_hash_prefix": hash_prefix,
+            "add_memories": memories,
+        },
+    )
     if result.get("status") == "ok":
         show_token_updated(result)
     else:
@@ -942,10 +1025,13 @@ async def cmd_token_ungrant(client: MCPClient, state: dict, args: str):
     hash_prefix = parts[0]
     memories = parts[1:]
 
-    result = await client.call_tool("admin_update_token", {
-        "token_hash_prefix": hash_prefix,
-        "remove_memories": memories,
-    })
+    result = await client.call_tool(
+        "admin_update_token",
+        {
+            "token_hash_prefix": hash_prefix,
+            "remove_memories": memories,
+        },
+    )
     if result.get("status") == "ok":
         show_token_updated(result)
     else:
@@ -968,10 +1054,13 @@ async def cmd_token_set(client: MCPClient, state: dict, args: str):
     hash_prefix = parts[0]
     memories = parts[1:] if len(parts) > 1 else []
 
-    result = await client.call_tool("admin_update_token", {
-        "token_hash_prefix": hash_prefix,
-        "set_memories": memories,
-    })
+    result = await client.call_tool(
+        "admin_update_token",
+        {
+            "token_hash_prefix": hash_prefix,
+            "set_memories": memories,
+        },
+    )
     if result.get("status") == "ok":
         show_token_updated(result)
     else:
@@ -986,23 +1075,24 @@ async def cmd_token_set(client: MCPClient, state: dict, args: str):
 # Handlers backup
 # =============================================================================
 
+
 async def cmd_backup_create(client: MCPClient, state: dict, args: str):
     """Crée un backup de la mémoire courante ou spécifiée."""
     from .display import show_backup_result
-    
+
     parts = args.split(maxsplit=1) if args else []
     mem = parts[0] if parts else state.get("memory")
     description = parts[1].strip('"').strip("'") if len(parts) > 1 else None
-    
+
     if not mem:
         show_warning("Usage: backup-create [memory_id] [description]")
         return
-    
+
     console.print(f"[dim]💾 Backup de '{mem}' en cours...[/dim]")
     params = {"memory_id": mem}
     if description:
         params["description"] = description
-    
+
     result = await client.call_tool("backup_create", params)
     if result.get("status") == "ok":
         show_backup_result(result)
@@ -1013,12 +1103,12 @@ async def cmd_backup_create(client: MCPClient, state: dict, args: str):
 async def cmd_backup_list(client: MCPClient, state: dict, args: str):
     """Liste les backups disponibles."""
     from .display import show_backups_table
-    
+
     params = {}
     mem = args.strip() if args.strip() else state.get("memory")
     if mem:
         params["memory_id"] = mem
-    
+
     result = await client.call_tool("backup_list", params)
     if result.get("status") == "ok":
         show_backups_table(result.get("backups", []))
@@ -1029,18 +1119,19 @@ async def cmd_backup_list(client: MCPClient, state: dict, args: str):
 async def cmd_backup_restore(client: MCPClient, state: dict, args: str):
     """Restaure une mémoire depuis un backup."""
     from rich.prompt import Confirm
+
     from .display import show_restore_result
-    
+
     if not args:
         show_warning("Usage: backup-restore <backup_id>")
         console.print("[dim]Utilisez 'backup-list' pour voir les backup_id[/dim]")
         return
-    
+
     backup_id = args.strip()
     if not Confirm.ask(f"[yellow]Restaurer depuis '{backup_id}' ?[/yellow]"):
         console.print("[dim]Annulé.[/dim]")
         return
-    
+
     console.print(f"[dim]📥 Restauration de '{backup_id}'...[/dim]")
     result = await client.call_tool("backup_restore", {"backup_id": backup_id})
     if result.get("status") == "ok":
@@ -1052,36 +1143,40 @@ async def cmd_backup_restore(client: MCPClient, state: dict, args: str):
 async def cmd_backup_download(client: MCPClient, state: dict, args: str):
     """
     Télécharge un backup en archive tar.gz.
-    
+
     Usage: backup-download <backup_id> [output_file] [--include-documents]
-    
+
     --include-documents : inclut les documents originaux (PDF, DOCX...) dans l'archive.
                           Sans cette option, seuls les métadonnées (graphe + vecteurs) sont incluses.
                           Avec cette option, l'archive permet un restore complet hors-ligne.
     """
     if not args:
         show_warning("Usage: backup-download <backup_id> [output_file] [--include-documents]")
-        console.print("[dim]  --include-documents : inclut les docs originaux (PDF, DOCX…) pour restore offline[/dim]")
+        console.print(
+            "[dim]  --include-documents : inclut les docs originaux (PDF, DOCX…) pour restore offline[/dim]"
+        )
         console.print("[dim]  Utilisez 'backup-list' pour voir les backup_id[/dim]")
         return
-    
+
     # Détecter --include-documents
     include_documents = "--include-documents" in args
     clean_args = args.replace("--include-documents", "").strip()
-    
+
     parts = clean_args.split(maxsplit=1)
     backup_id = parts[0]
     output = parts[1].strip() if len(parts) > 1 else None
-    
+
     if include_documents:
-        console.print(f"[dim]📦 Téléchargement de '{backup_id}' [yellow](avec documents)[/yellow]...[/dim]")
+        console.print(
+            f"[dim]📦 Téléchargement de '{backup_id}' [yellow](avec documents)[/yellow]...[/dim]"
+        )
     else:
         console.print(f"[dim]📦 Téléchargement de '{backup_id}'...[/dim]")
-    
-    params = {"backup_id": backup_id}
+
+    params: dict = {"backup_id": backup_id}
     if include_documents:
         params["include_documents"] = True
-    
+
     result = await client.call_tool("backup_download", params)
     if result.get("status") == "ok":
         content_b64 = result.get("content_base64", "")
@@ -1097,16 +1192,16 @@ async def cmd_backup_download(client: MCPClient, state: dict, args: str):
 async def cmd_backup_delete(client: MCPClient, state: dict, args: str):
     """Supprime un backup."""
     from rich.prompt import Confirm
-    
+
     if not args:
         show_warning("Usage: backup-delete <backup_id>")
         return
-    
+
     backup_id = args.strip()
     if not Confirm.ask(f"[yellow]Supprimer le backup '{backup_id}' ?[/yellow]"):
         console.print("[dim]Annulé.[/dim]")
         return
-    
+
     result = await client.call_tool("backup_delete", {"backup_id": backup_id})
     if result.get("status") == "ok":
         show_success(f"Backup supprimé: {backup_id} ({result.get('files_deleted', 0)} fichiers)")
@@ -1117,6 +1212,7 @@ async def cmd_backup_delete(client: MCPClient, state: dict, args: str):
 # =============================================================================
 # Handlers divers
 # =============================================================================
+
 
 async def cmd_delete(client: MCPClient, state: dict, args: str):
     """Supprime une mémoire ou un document."""
@@ -1141,15 +1237,18 @@ async def cmd_delete(client: MCPClient, state: dict, args: str):
 # Boucle principale du shell
 # =============================================================================
 
+
 def run_shell(url: str, token: str):
     """Point d'entrée du shell interactif."""
 
-    console.print(Panel.fit(
-        "[bold cyan]🧠 MCP Memory Shell[/bold cyan]\n\n"
-        "Tab : autocomplétion  •  ↑↓ : historique  •  Ctrl+C : annuler\n"
-        "Tapez [green]help[/green] pour les commandes, [yellow]exit[/yellow] pour quitter.",
-        border_style="cyan",
-    ))
+    console.print(
+        Panel.fit(
+            "[bold cyan]🧠 MCP Memory Shell[/bold cyan]\n\n"
+            "Tab : autocomplétion  •  ↑↓ : historique  •  Ctrl+C : annuler\n"
+            "Tapez [green]help[/green] pour les commandes, [yellow]exit[/yellow] pour quitter.",
+            border_style="cyan",
+        )
+    )
 
     client = MCPClient(url, token)
     state = {"memory": None, "debug": False, "limit": 10}
@@ -1160,52 +1259,52 @@ def run_shell(url: str, token: str):
     # Table d'aide (organisée par catégorie)
     HELP = {
         # --- Serveur ---
-        "about":        "Identité et capacités du service MCP Memory",
-        "health":       "État du serveur (URL, nb mémoires)",
+        "about": "Identité et capacités du service MCP Memory",
+        "health": "État du serveur (URL, nb mémoires)",
         # --- Mémoires ---
-        "list":         "Lister les mémoires",
-        "use <id>":     "Sélectionner une mémoire",
+        "list": "Lister les mémoires",
+        "use <id>": "Sélectionner une mémoire",
         "create <id> <onto>": "Créer une mémoire (ex: create LEGAL legal)",
-        "info":         "Résumé de la mémoire courante",
-        "graph":        "Graphe complet (types, relations, documents)",
-        "delete":       "Supprimer la mémoire courante (+ S3)",
+        "info": "Résumé de la mémoire courante",
+        "graph": "Graphe complet (types, relations, documents)",
+        "delete": "Supprimer la mémoire courante (+ S3)",
         # --- Documents ---
-        "docs":         "Lister les documents",
-        "ingest <path>":"Ingérer un fichier (--force pour réingérer)",
-        "ingestdir <p>":"Ingérer un répertoire (--exclude, --confirm, --force)",
-        "deldoc <id>":  "Supprimer un document",
+        "docs": "Lister les documents",
+        "ingest <path>": "Ingérer un fichier (--force pour réingérer)",
+        "ingestdir <p>": "Ingérer un répertoire (--exclude, --confirm, --force)",
+        "deldoc <id>": "Supprimer un document",
         # --- Exploration ---
-        "entities":     "Entités par type (avec descriptions)",
-        "entity <n>":   "Contexte d'une entité (relations, documents, voisins)",
-        "relations":    "Relations par type (avec exemples)",
-        "ask <q>":      "Poser une question (réponse LLM)",
-        "query <q>":    "Données structurées (sans LLM)",
+        "entities": "Entités par type (avec descriptions)",
+        "entity <n>": "Contexte d'une entité (relations, documents, voisins)",
+        "relations": "Relations par type (avec exemples)",
+        "ask <q>": "Poser une question (réponse LLM)",
+        "query <q>": "Données structurées (sans LLM)",
         # --- Stockage ---
-        "check":        "Vérifier cohérence S3/graphe (docs accessibles, orphelins)",
-        "cleanup":      "Lister les orphelins S3 (--force pour supprimer)",
+        "check": "Vérifier cohérence S3/graphe (docs accessibles, orphelins)",
+        "cleanup": "Lister les orphelins S3 (--force pour supprimer)",
         # --- Ontologies ---
-        "ontologies":   "Lister les ontologies disponibles",
+        "ontologies": "Lister les ontologies disponibles",
         # --- Tokens ---
-        "tokens":           "Lister les tokens actifs",
+        "tokens": "Lister les tokens actifs",
         "token-create <c>": "Créer un token (ex: token-create quoteflow read,write JURIDIQUE)",
         "token-revoke <h>": "Révoquer un token (par préfixe de hash)",
-        "token-grant <h> <m>":  "Autoriser un token à accéder à des mémoires",
-        "token-ungrant <h> <m>":"Retirer l'accès d'un token à des mémoires",
-        "token-set <h> [m]":    "Remplacer les mémoires d'un token (vide=toutes)",
+        "token-grant <h> <m>": "Autoriser un token à accéder à des mémoires",
+        "token-ungrant <h> <m>": "Retirer l'accès d'un token à des mémoires",
+        "token-set <h> [m]": "Remplacer les mémoires d'un token (vide=toutes)",
         # --- Backup ---
-        "backup-create [id]":   "Créer un backup (mémoire courante ou spécifiée)",
-        "backup-list [id]":     "Lister les backups disponibles",
+        "backup-create [id]": "Créer un backup (mémoire courante ou spécifiée)",
+        "backup-list [id]": "Lister les backups disponibles",
         "backup-restore <bid>": "Restaurer depuis un backup",
-        "backup-download <bid>":"Télécharger en tar.gz (--include-documents pour offline)",
-        "backup-delete <bid>":  "Supprimer un backup",
+        "backup-download <bid>": "Télécharger en tar.gz (--include-documents pour offline)",
+        "backup-delete <bid>": "Supprimer un backup",
         # --- Config ---
-        "limit [N]":    "Voir/changer le limit de recherche (défaut: 10)",
-        "debug":        "Activer/désactiver le debug",
-        "clear":        "Effacer l'écran",
-        "help":         "Afficher cette aide",
-        "exit":         "Quitter",
+        "limit [N]": "Voir/changer le limit de recherche (défaut: 10)",
+        "debug": "Activer/désactiver le debug",
+        "clear": "Effacer l'écran",
+        "help": "Afficher cette aide",
+        "exit": "Quitter",
         # --- Options globales ---
-        "<cmd> --json":  "JSON brut sans formatage (ex: query --json ma question)",
+        "<cmd> --json": "JSON brut sans formatage (ex: query --json ma question)",
     }
 
     def show_help():
@@ -1292,11 +1391,15 @@ def run_shell(url: str, token: str):
                         if new_limit < 1:
                             raise ValueError
                         state["limit"] = new_limit
-                        console.print(f"[green]✓[/green] Limit: [cyan]{new_limit}[/cyan] entités par recherche")
+                        console.print(
+                            f"[green]✓[/green] Limit: [cyan]{new_limit}[/cyan] entités par recherche"
+                        )
                     except ValueError:
                         show_error("Usage: limit <nombre> (ex: limit 20)")
                 else:
-                    console.print(f"Limit actuel: [cyan]{state['limit']}[/cyan] entités par recherche")
+                    console.print(
+                        f"Limit actuel: [cyan]{state['limit']}[/cyan] entités par recherche"
+                    )
 
             elif command == "check":
                 asyncio.run(cmd_check(client, state, args))
@@ -1305,6 +1408,7 @@ def run_shell(url: str, token: str):
                 force = "--force" in args.lower() if args else False
                 if force:
                     from rich.prompt import Confirm
+
                     if not Confirm.ask("[yellow]⚠️ Supprimer les fichiers orphelins S3 ?[/yellow]"):
                         console.print("[dim]Annulé.[/dim]")
                         continue

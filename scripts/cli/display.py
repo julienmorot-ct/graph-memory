@@ -9,12 +9,12 @@ Fournit des fonctions réutilisables pour formater et afficher :
 """
 
 from collections import Counter, defaultdict
-from typing import List, Dict, Any
+from typing import List, Optional
 
 from rich.console import Console
-from rich.table import Table
-from rich.panel import Panel
 from rich.markdown import Markdown
+from rich.panel import Panel
+from rich.table import Table
 
 console = Console()
 
@@ -23,7 +23,8 @@ console = Console()
 # Affichage des mémoires
 # =============================================================================
 
-def show_memories_table(memories: List[dict], current_memory: str = None):
+
+def show_memories_table(memories: List[dict], current_memory: Optional[str] = None):
     """Affiche la liste des mémoires dans un tableau."""
     if not memories:
         console.print("[yellow]Aucune mémoire trouvée.[/yellow]")
@@ -54,9 +55,11 @@ def show_memories_table(memories: List[dict], current_memory: str = None):
 # Affichage des documents
 # =============================================================================
 
+
 def show_documents_table(docs: List[dict], memory_id: str):
     """Affiche la liste des documents dans un tableau."""
     import os
+
     if not docs:
         console.print(f"[yellow]Aucun document dans '{memory_id}'.[/yellow]")
         return
@@ -91,6 +94,7 @@ def show_documents_table(docs: List[dict], memory_id: str):
 # Affichage du graphe (résumé complet)
 # =============================================================================
 
+
 def show_graph_summary(graph_data: dict, memory_id: str):
     """
     Affiche un résumé complet et lisible du graphe d'une mémoire.
@@ -110,14 +114,16 @@ def show_graph_summary(graph_data: dict, memory_id: str):
     entity_nodes = [n for n in nodes if n.get("node_type") == "entity"]
     non_mention_edges = [e for e in edges if e.get("type") != "MENTIONS"]
 
-    console.print(Panel.fit(
-        f"[bold]Entités:[/bold] [cyan]{len(entity_nodes)}[/cyan]  "
-        f"[bold]Relations:[/bold] [cyan]{len(non_mention_edges)}[/cyan]  "
-        f"[bold]Documents:[/bold] [cyan]{len(docs)}[/cyan]  "
-        f"[bold]MENTIONS:[/bold] [dim]{len(edges) - len(non_mention_edges)}[/dim]",
-        title=f"📊 Graphe: {memory_id}",
-        border_style="blue",
-    ))
+    console.print(
+        Panel.fit(
+            f"[bold]Entités:[/bold] [cyan]{len(entity_nodes)}[/cyan]  "
+            f"[bold]Relations:[/bold] [cyan]{len(non_mention_edges)}[/cyan]  "
+            f"[bold]Documents:[/bold] [cyan]{len(docs)}[/cyan]  "
+            f"[bold]MENTIONS:[/bold] [dim]{len(edges) - len(non_mention_edges)}[/dim]",
+            title=f"📊 Graphe: {memory_id}",
+            border_style="blue",
+        )
+    )
 
     # --- Entités par type ---
     by_type = defaultdict(list)
@@ -154,7 +160,9 @@ def show_graph_summary(graph_data: dict, memory_id: str):
     if docs:
         console.print("\n[bold]📄 Documents:[/bold]")
         for d in docs:
-            console.print(f"  • [cyan]{d.get('filename', '?')}[/cyan]  [dim]({d.get('id', '?')[:8]}…)[/dim]")
+            console.print(
+                f"  • [cyan]{d.get('filename', '?')}[/cyan]  [dim]({d.get('id', '?')[:8]}…)[/dim]"
+            )
 
     # --- Top nœuds connectés ---
     hub_count: Counter = Counter()
@@ -172,17 +180,19 @@ def show_graph_summary(graph_data: dict, memory_id: str):
 # Affichage d'une entité et son contexte
 # =============================================================================
 
+
 def show_entity_context(context: dict):
     """Affiche le contexte d'une entité (relations, documents, voisins)."""
     name = context.get("entity_name", "?")
     etype = context.get("entity_type", "?")
 
-    console.print(Panel.fit(
-        f"[bold]Nom:[/bold] [cyan]{name}[/cyan]\n"
-        f"[bold]Type:[/bold] [magenta]{etype}[/magenta]",
-        title="🔍 Entité",
-        border_style="cyan",
-    ))
+    console.print(
+        Panel.fit(
+            f"[bold]Nom:[/bold] [cyan]{name}[/cyan]\n[bold]Type:[/bold] [magenta]{etype}[/magenta]",
+            title="🔍 Entité",
+            border_style="cyan",
+        )
+    )
 
     # Relations
     relations = context.get("relations", [])
@@ -225,21 +235,21 @@ def show_entity_context(context: dict):
 # Affichage d'ingestion
 # =============================================================================
 
+
 def _colorize_step(msg: str) -> str:
     """Colorie une étape d'ingestion selon son type."""
     # Mapping emoji → couleur Rich
     color_map = {
-        "📦": "cyan",      # Décodage
-        "📤": "blue",      # Upload S3
-        "📄": "white",     # Extraction texte
-        "🔍": "yellow",    # LLM extraction
-        "📊": "magenta",   # Neo4j
-        "🧩": "cyan",      # RAG/Chunking
-        "🔢": "blue",      # Embedding
-        "📦": "cyan",      # Stockage Qdrant
-        "✅": "green",     # Succès
-        "🔄": "yellow",    # Force/suppression
-        "🏁": "green bold", # Terminé
+        "📦": "cyan",  # Décodage / Stockage Qdrant
+        "📤": "blue",  # Upload S3
+        "📄": "white",  # Extraction texte
+        "🔍": "yellow",  # LLM extraction
+        "📊": "magenta",  # Neo4j
+        "🧩": "cyan",  # RAG/Chunking
+        "🔢": "blue",  # Embedding
+        "✅": "green",  # Succès
+        "🔄": "yellow",  # Force/suppression
+        "🏁": "green bold",  # Terminé
     }
     for emoji, color in color_map.items():
         if msg.startswith(emoji):
@@ -269,11 +279,13 @@ def show_ingest_result(result: dict):
             m, s = divmod(int(t), 60)
             colored = _colorize_step(msg)
             step_lines.append(f"  [dim]{m:02d}:{s:02d}[/dim]  {colored}")
-        console.print(Panel.fit(
-            "\n".join(step_lines),
-            title="📋 Pipeline d'ingestion",
-            border_style="blue",
-        ))
+        console.print(
+            Panel.fit(
+                "\n".join(step_lines),
+                title="📋 Pipeline d'ingestion",
+                border_style="blue",
+            )
+        )
 
     # === Panneau résultat ===
     timing_str = ""
@@ -284,10 +296,16 @@ def show_ingest_result(result: dict):
     size_str = _format_size(size_bytes) if size_bytes else ""
 
     lines = []
-    lines.append(f"[bold]Fichier:[/bold]   [cyan]{filename}[/cyan]" + (f"  ({size_str})" if size_str else ""))
+    lines.append(
+        f"[bold]Fichier:[/bold]   [cyan]{filename}[/cyan]" + (f"  ({size_str})" if size_str else "")
+    )
     lines.append(f"[bold]ID:[/bold]        [dim]{doc_id}[/dim]")
-    lines.append(f"[bold]Entités:[/bold]   [cyan]{e_new}[/cyan] nouvelles + [yellow]{e_merged}[/yellow] fusionnées = [bold]{e_new + e_merged}[/bold]")
-    lines.append(f"[bold]Relations:[/bold] [cyan]{r_new}[/cyan] nouvelles + [yellow]{r_merged}[/yellow] fusionnées = [bold]{r_new + r_merged}[/bold]")
+    lines.append(
+        f"[bold]Entités:[/bold]   [cyan]{e_new}[/cyan] nouvelles + [yellow]{e_merged}[/yellow] fusionnées = [bold]{e_new + e_merged}[/bold]"
+    )
+    lines.append(
+        f"[bold]Relations:[/bold] [cyan]{r_new}[/cyan] nouvelles + [yellow]{r_merged}[/yellow] fusionnées = [bold]{r_new + r_merged}[/bold]"
+    )
     if chunks > 0:
         lines.append(f"[bold]RAG:[/bold]       [green]{chunks}[/green] chunks vectorisés")
 
@@ -304,8 +322,7 @@ def show_ingest_result(result: dict):
     relation_types = result.get("relation_types", {})
     if relation_types:
         rels_str = " ".join(
-            f"[blue]{t}[/blue]:{c}"
-            for t, c in sorted(relation_types.items(), key=lambda x: -x[1])
+            f"[blue]{t}[/blue]:{c}" for t, c in sorted(relation_types.items(), key=lambda x: -x[1])
         )
         lines.append(f"[bold]Types R:[/bold]   {rels_str}")
 
@@ -317,18 +334,23 @@ def show_ingest_result(result: dict):
     # Résumé
     summary = result.get("summary", "")
     if summary:
-        lines.append(f"[bold]Résumé:[/bold]    [dim]{summary[:150]}{'…' if len(summary) > 150 else ''}[/dim]")
+        lines.append(
+            f"[bold]Résumé:[/bold]    [dim]{summary[:150]}{'…' if len(summary) > 150 else ''}[/dim]"
+        )
 
-    console.print(Panel.fit(
-        "\n".join(lines),
-        title=f"✅ Document ingéré{timing_str}",
-        border_style="green",
-    ))
+    console.print(
+        Panel.fit(
+            "\n".join(lines),
+            title=f"✅ Document ingéré{timing_str}",
+            border_style="green",
+        )
+    )
 
 
 # =============================================================================
 # Utilitaires
 # =============================================================================
+
 
 def show_error(msg: str):
     """Affiche un message d'erreur."""
@@ -348,7 +370,7 @@ def show_warning(msg: str):
 def show_storage_check(result: dict):
     """
     Affiche le rapport de vérification S3 dans un format lisible.
-    
+
     Affiche :
     - Panneau résumé (docs accessibles, manquants, orphelins)
     - Tableau des documents vérifiés (avec statut)
@@ -357,45 +379,46 @@ def show_storage_check(result: dict):
     if result.get("status") != "ok":
         show_error(result.get("message", "Erreur lors du check S3"))
         return
-    
+
     scope = result.get("scope", "all")
     graph_docs = result.get("graph_documents", {})
     orphans = result.get("s3_orphans", {})
-    
+
     # --- Panneau résumé ---
     summary = result.get("summary", "")
-    console.print(Panel.fit(
-        f"[bold]Scope:[/bold] [cyan]{scope}[/cyan]  "
-        f"[bold]Mémoires:[/bold] [cyan]{result.get('memories_checked', 0)}[/cyan]  "
-        f"[bold]Objets S3:[/bold] [cyan]{result.get('s3_total_objects', 0)}[/cyan]\n\n"
-        f"{summary}",
-        title="🔍 Vérification S3",
-        border_style="blue",
-    ))
-    
+    console.print(
+        Panel.fit(
+            f"[bold]Scope:[/bold] [cyan]{scope}[/cyan]  "
+            f"[bold]Mémoires:[/bold] [cyan]{result.get('memories_checked', 0)}[/cyan]  "
+            f"[bold]Objets S3:[/bold] [cyan]{result.get('s3_total_objects', 0)}[/cyan]\n\n"
+            f"{summary}",
+            title="🔍 Vérification S3",
+            border_style="blue",
+        )
+    )
+
     # --- Tableau des documents du graphe ---
     details = graph_docs.get("details", [])
     if details:
         table = Table(
-            title=f"📄 Documents dans le graphe ({graph_docs.get('total', 0)})",
-            show_header=True
+            title=f"📄 Documents dans le graphe ({graph_docs.get('total', 0)})", show_header=True
         )
         table.add_column("Statut", width=3)
         table.add_column("Mémoire", style="cyan", max_width=20)
         table.add_column("Fichier", style="white", max_width=30)
         table.add_column("Taille", style="dim", justify="right", width=10)
         table.add_column("Type", style="dim", max_width=15)
-        
+
         for d in details:
             status_icon = {
                 "ok": "[green]✅[/green]",
                 "missing": "[red]❌[/red]",
                 "error": "[yellow]⚠️[/yellow]",
             }.get(d.get("status", ""), "❓")
-            
+
             size = d.get("size_bytes", 0)
             size_str = _format_size(size) if size > 0 else "-"
-            
+
             table.add_row(
                 status_icon,
                 d.get("memory_id", "?"),
@@ -403,22 +426,22 @@ def show_storage_check(result: dict):
                 size_str,
                 d.get("content_type", "")[:15] if d.get("content_type") else "-",
             )
-        
+
         console.print(table)
-    
+
     # --- Tableau des orphelins ---
     orphan_files = orphans.get("files", [])
     if orphan_files:
         table = Table(
             title=f"⚠️ Fichiers orphelins S3 ({orphans.get('count', 0)}, {orphans.get('total_size', '?')})",
             show_header=True,
-            border_style="yellow"
+            border_style="yellow",
         )
         table.add_column("#", style="dim", width=3)
         table.add_column("Clé S3", style="yellow", max_width=50)
         table.add_column("Taille", style="dim", justify="right", width=10)
         table.add_column("Modifié le", style="dim", width=12)
-        
+
         for i, o in enumerate(orphan_files, 1):
             table.add_row(
                 str(i),
@@ -426,9 +449,11 @@ def show_storage_check(result: dict):
                 _format_size(o.get("size", 0)),
                 str(o.get("last_modified", ""))[:10],
             )
-        
+
         console.print(table)
-        console.print("[dim]Pour nettoyer: cleanup (dry run) ou cleanup --force (suppression)[/dim]")
+        console.print(
+            "[dim]Pour nettoyer: cleanup (dry run) ou cleanup --force (suppression)[/dim]"
+        )
     elif graph_docs.get("total", 0) > 0:
         console.print("[green]✅ Aucun fichier orphelin sur S3. Stockage propre ![/green]")
 
@@ -438,17 +463,17 @@ def show_cleanup_result(result: dict):
     if result.get("status") != "ok":
         show_error(result.get("message", "Erreur"))
         return
-    
+
     message = result.get("message", "")
     console.print(f"\n{message}")
-    
+
     if result.get("dry_run") and result.get("files"):
         files = result["files"]
         table = Table(title="📋 Fichiers à supprimer", show_header=True)
         table.add_column("#", style="dim", width=3)
         table.add_column("Clé S3", style="yellow", max_width=50)
         table.add_column("Taille", style="dim", justify="right", width=10)
-        
+
         for i, f in enumerate(files, 1):
             table.add_row(
                 str(i),
@@ -460,11 +485,12 @@ def show_cleanup_result(result: dict):
 
 def format_size(size_bytes: int) -> str:
     """Convertit des bytes en taille lisible (ex: 1024 → '1.0 KB')."""
-    for unit in ['B', 'KB', 'MB', 'GB']:
-        if size_bytes < 1024:
-            return f"{size_bytes:.1f} {unit}"
-        size_bytes /= 1024
-    return f"{size_bytes:.1f} TB"
+    size: float = size_bytes
+    for unit in ["B", "KB", "MB", "GB"]:
+        if size < 1024:
+            return f"{size:.1f} {unit}"
+        size /= 1024
+    return f"{size:.1f} TB"
 
 
 # Alias rétrocompatible (ancien nom privé)
@@ -475,22 +501,28 @@ _format_size = format_size
 # Affichage partagé : panel pré-vol d'ingestion
 # =============================================================================
 
-def show_ingest_preflight(filename: str, file_size: int, file_ext: str,
-                          memory_id: str, force: bool = False):
+
+def show_ingest_preflight(
+    filename: str, file_size: int, file_ext: str, memory_id: str, force: bool = False
+):
     """Affiche le panel pré-vol avant une ingestion (partagé CLI Click / Shell)."""
-    console.print(Panel.fit(
-        f"[bold]Fichier:[/bold]  [cyan]{filename}[/cyan]\n"
-        f"[bold]Taille:[/bold]  [cyan]{format_size(file_size)}[/cyan]  "
-        f"[bold]Type:[/bold] [cyan]{file_ext}[/cyan]  "
-        f"[bold]Mémoire:[/bold] [cyan]{memory_id}[/cyan]"
-        + (f"\n[bold]Mode:[/bold]   [yellow]Force (ré-ingestion)[/yellow]" if force else ""),
-        title="📥 Ingestion", border_style="blue",
-    ))
+    console.print(
+        Panel.fit(
+            f"[bold]Fichier:[/bold]  [cyan]{filename}[/cyan]\n"
+            f"[bold]Taille:[/bold]  [cyan]{format_size(file_size)}[/cyan]  "
+            f"[bold]Type:[/bold] [cyan]{file_ext}[/cyan]  "
+            f"[bold]Mémoire:[/bold] [cyan]{memory_id}[/cyan]"
+            + ("\n[bold]Mode:[/bold]   [yellow]Force (ré-ingestion)[/yellow]" if force else ""),
+            title="📥 Ingestion",
+            border_style="blue",
+        )
+    )
 
 
 # =============================================================================
 # Affichage partagé : entités par type (avec documents sources)
 # =============================================================================
+
 
 def show_entities_by_type(graph_data: dict):
     """
@@ -533,7 +565,8 @@ def show_entities_by_type(graph_data: dict):
         entities = by_type[etype]
         table = Table(
             title=f"[magenta]{etype}[/magenta] ({len(entities)})",
-            show_header=True, show_lines=False
+            show_header=True,
+            show_lines=False,
         )
         table.add_column("Nom", style="white")
         table.add_column("Description", style="dim", max_width=40)
@@ -557,7 +590,8 @@ def show_entities_by_type(graph_data: dict):
 # Affichage partagé : relations par type
 # =============================================================================
 
-def show_relations_by_type(graph_data: dict, type_filter: str = None):
+
+def show_relations_by_type(graph_data: dict, type_filter: Optional[str] = None):
     """
     Affiche les relations du graphe.
 
@@ -582,8 +616,7 @@ def show_relations_by_type(graph_data: dict, type_filter: str = None):
             return True  # Des relations existent, juste pas ce type
 
         table = Table(
-            title=f"🔗 {type_filter.upper()} ({len(filtered)} relations)",
-            show_header=True
+            title=f"🔗 {type_filter.upper()} ({len(filtered)} relations)", show_header=True
         )
         table.add_column("De", style="white")
         table.add_column("→", style="dim", width=2)
@@ -608,9 +641,7 @@ def show_relations_by_type(graph_data: dict, type_filter: str = None):
 
         for rtype, count in rel_types.most_common():
             examples = [e for e in edges if e.get("type") == rtype][:3]
-            ex_str = ", ".join(
-                f"{e.get('from', '?')} → {e.get('to', '?')}" for e in examples
-            )
+            ex_str = ", ".join(f"{e.get('from', '?')} → {e.get('to', '?')}" for e in examples)
             table.add_row(rtype, str(count), ex_str[:60])
 
         console.print(table)
@@ -623,6 +654,7 @@ def show_relations_by_type(graph_data: dict, type_filter: str = None):
 # =============================================================================
 # Affichage des tokens
 # =============================================================================
+
 
 def show_tokens_table(tokens: List[dict]):
     """Affiche la liste des tokens dans un tableau."""
@@ -664,15 +696,21 @@ def show_tokens_table(tokens: List[dict]):
 
 def show_token_created(result: dict):
     """Affiche le résultat de création d'un token."""
-    email_line = f"\n[bold]Email:[/bold]       [white]{result['email']}[/white]" if result.get('email') else ""
-    console.print(Panel.fit(
-        f"[bold]Client:[/bold]      [cyan]{result.get('client_name', '?')}[/cyan]{email_line}\n"
-        f"[bold]Token:[/bold]       [green bold]{result.get('token', '?')}[/green bold]\n"
-        f"[bold]Permissions:[/bold] [magenta]{', '.join(result.get('permissions', []))}[/magenta]\n"
-        f"[bold]Mémoires:[/bold]    {', '.join(result.get('memory_ids', [])) or '[dim]toutes[/dim]'}",
-        title="🔑 Token créé",
-        border_style="green",
-    ))
+    email_line = (
+        f"\n[bold]Email:[/bold]       [white]{result['email']}[/white]"
+        if result.get("email")
+        else ""
+    )
+    console.print(
+        Panel.fit(
+            f"[bold]Client:[/bold]      [cyan]{result.get('client_name', '?')}[/cyan]{email_line}\n"
+            f"[bold]Token:[/bold]       [green bold]{result.get('token', '?')}[/green bold]\n"
+            f"[bold]Permissions:[/bold] [magenta]{', '.join(result.get('permissions', []))}[/magenta]\n"
+            f"[bold]Mémoires:[/bold]    {', '.join(result.get('memory_ids', [])) or '[dim]toutes[/dim]'}",
+            title="🔑 Token créé",
+            border_style="green",
+        )
+    )
     console.print("[yellow]⚠️  Conservez ce token précieusement, il ne sera plus affiché ![/yellow]")
 
 
@@ -680,20 +718,22 @@ def show_token_updated(result: dict):
     """Affiche le résultat d'une mise à jour de token."""
     prev = result.get("previous_memories", [])
     curr = result.get("current_memories", [])
-    console.print(Panel.fit(
-        f"[bold]Client:[/bold]      [cyan]{result.get('client_name', '?')}[/cyan]\n"
-        f"[bold]Hash:[/bold]        [dim]{result.get('token_hash_prefix', '?')}[/dim]\n"
-        f"[bold]Avant:[/bold]       {', '.join(prev) if prev else '[dim]toutes[/dim]'}\n"
-        f"[bold]Après:[/bold]       {', '.join(curr) if curr else '[dim]toutes[/dim]'}",
-        title="🔑 Token mis à jour",
-        border_style="cyan",
-    ))
+    console.print(
+        Panel.fit(
+            f"[bold]Client:[/bold]      [cyan]{result.get('client_name', '?')}[/cyan]\n"
+            f"[bold]Hash:[/bold]        [dim]{result.get('token_hash_prefix', '?')}[/dim]\n"
+            f"[bold]Avant:[/bold]       {', '.join(prev) if prev else '[dim]toutes[/dim]'}\n"
+            f"[bold]Après:[/bold]       {', '.join(curr) if curr else '[dim]toutes[/dim]'}",
+            title="🔑 Token mis à jour",
+            border_style="cyan",
+        )
+    )
 
 
 def show_query_result(result: dict):
     """
     Affiche le résultat d'un memory_query (données structurées, pas de réponse LLM).
-    
+
     Sections :
     - Bannière stats (mode, entités, chunks, docs)
     - Entités enrichies (type, description, relations, documents)
@@ -703,19 +743,21 @@ def show_query_result(result: dict):
     stats = result.get("stats", {})
     query = result.get("query", "?")
     mode = result.get("retrieval_mode", "?")
-    
+
     # --- Bannière stats ---
-    console.print(Panel.fit(
-        f"[bold]Query:[/bold]      [cyan]{query}[/cyan]\n"
-        f"[bold]Mode:[/bold]       [yellow]{mode}[/yellow]\n"
-        f"[bold]Entités:[/bold]    [green]{stats.get('entities_found', 0)}[/green]  "
-        f"[bold]RAG chunks:[/bold] [green]{stats.get('rag_chunks_retained', 0)}[/green] "
-        f"[dim](filtrés: {stats.get('rag_chunks_filtered', 0)}, seuil: {stats.get('rag_score_threshold', '?')})[/dim]  "
-        f"[bold]Documents:[/bold] [green]{len(result.get('source_documents', []))}[/green]",
-        title="📊 Résultat Query (données structurées)",
-        border_style="blue",
-    ))
-    
+    console.print(
+        Panel.fit(
+            f"[bold]Query:[/bold]      [cyan]{query}[/cyan]\n"
+            f"[bold]Mode:[/bold]       [yellow]{mode}[/yellow]\n"
+            f"[bold]Entités:[/bold]    [green]{stats.get('entities_found', 0)}[/green]  "
+            f"[bold]RAG chunks:[/bold] [green]{stats.get('rag_chunks_retained', 0)}[/green] "
+            f"[dim](filtrés: {stats.get('rag_chunks_filtered', 0)}, seuil: {stats.get('rag_score_threshold', '?')})[/dim]  "
+            f"[bold]Documents:[/bold] [green]{len(result.get('source_documents', []))}[/green]",
+            title="📊 Résultat Query (données structurées)",
+            border_style="blue",
+        )
+    )
+
     # --- Entités ---
     entities = result.get("entities", [])
     if entities:
@@ -725,13 +767,13 @@ def show_query_result(result: dict):
         table.add_column("Description", style="white", max_width=40)
         table.add_column("Documents", style="dim", max_width=20)
         table.add_column("Relations", style="dim", max_width=25)
-        
+
         for e in entities:
             docs_str = ", ".join(e.get("source_documents", []))[:20] or "-"
             rels = e.get("relations", [])
             rels_str = ", ".join(f"{r['type']}→{r['target']}" for r in rels[:3])
             if len(rels) > 3:
-                rels_str += f" (+{len(rels)-3})"
+                rels_str += f" (+{len(rels) - 3})"
             table.add_row(
                 e.get("name", "?")[:30],
                 e.get("type", "?"),
@@ -740,7 +782,7 @@ def show_query_result(result: dict):
                 rels_str or "-",
             )
         console.print(table)
-    
+
     # --- Chunks RAG ---
     rag_chunks = result.get("rag_chunks", [])
     if rag_chunks:
@@ -750,7 +792,7 @@ def show_query_result(result: dict):
         table.add_column("Section", style="yellow", max_width=25)
         table.add_column("Document", style="cyan", max_width=20)
         table.add_column("Extrait", style="white", max_width=50)
-        
+
         for i, chunk in enumerate(rag_chunks, 1):
             section = chunk.get("section_title") or chunk.get("article_number") or "-"
             preview = (chunk.get("text", "")[:80]).replace("\n", " ").strip()
@@ -762,52 +804,52 @@ def show_query_result(result: dict):
                 preview + ("…" if len(chunk.get("text", "")) > 80 else ""),
             )
         console.print(table)
-    
+
     # --- Documents sources ---
     source_docs = result.get("source_documents", [])
     if source_docs:
         console.print(f"\n[bold]📄 Documents sources ({len(source_docs)}):[/bold]")
         for doc in source_docs:
-            console.print(f"  • [cyan]{doc.get('filename', '?')}[/cyan]  [dim]({doc.get('id', '?')[:8]}…)[/dim]")
+            console.print(
+                f"  • [cyan]{doc.get('filename', '?')}[/cyan]  [dim]({doc.get('id', '?')[:8]}…)[/dim]"
+            )
 
 
 def show_backup_result(result: dict):
     """Affiche le résultat d'un backup."""
     from rich.panel import Panel
-    
+
     stats = result.get("stats", {})
     lines = [
         f"[bold]Backup ID:[/bold]  [cyan]{result.get('backup_id', '?')}[/cyan]",
         f"[bold]Mémoire:[/bold]    [cyan]{result.get('memory_id', '?')}[/cyan]",
         f"[bold]Date:[/bold]       [dim]{result.get('created_at', '?')}[/dim]",
-        f"",
+        "",
         f"[bold]Entités:[/bold]    [green]{stats.get('entities', 0)}[/green]",
         f"[bold]Relations:[/bold]  [green]{stats.get('relations', 0)}[/green]",
         f"[bold]Documents:[/bold]  [green]{stats.get('documents', 0)}[/green]",
         f"[bold]Vecteurs:[/bold]   [green]{stats.get('qdrant_vectors', 0)}[/green]",
-        f"",
+        "",
         f"[bold]Temps:[/bold]      [dim]{result.get('elapsed_seconds', 0)}s[/dim]",
     ]
-    
+
     retention = result.get("retention_deleted", 0)
     if retention > 0:
-        lines.append(f"[bold]Rétention:[/bold] [yellow]{retention} ancien(s) backup(s) supprimé(s)[/yellow]")
-    
-    console.print(Panel.fit(
-        "\n".join(lines),
-        title="💾 Backup créé",
-        border_style="green"
-    ))
+        lines.append(
+            f"[bold]Rétention:[/bold] [yellow]{retention} ancien(s) backup(s) supprimé(s)[/yellow]"
+        )
+
+    console.print(Panel.fit("\n".join(lines), title="💾 Backup créé", border_style="green"))
 
 
 def show_backups_table(backups: list):
     """Affiche la liste des backups en table."""
     from rich.table import Table
-    
+
     if not backups:
         console.print("[dim]Aucun backup trouvé.[/dim]")
         return
-    
+
     table = Table(title=f"💾 Backups ({len(backups)})", show_header=True)
     table.add_column("Backup ID", style="cyan", no_wrap=True, min_width=35)
     table.add_column("Mémoire", style="white")
@@ -817,7 +859,7 @@ def show_backups_table(backups: list):
     table.add_column("Vecteurs", style="green", justify="right")
     table.add_column("Docs", style="green", justify="right")
     table.add_column("Description", style="dim", max_width=30)
-    
+
     for b in backups:
         stats = b.get("stats", {})
         table.add_row(
@@ -830,42 +872,40 @@ def show_backups_table(backups: list):
             str(stats.get("documents", 0)),
             (b.get("description", "") or "")[:30],
         )
-    
+
     console.print(table)
 
 
 def show_restore_result(result: dict):
     """Affiche le résultat d'une restauration."""
     from rich.panel import Panel
-    
+
     graph = result.get("graph", {})
     lines = [
         f"[bold]Backup ID:[/bold]  [cyan]{result.get('backup_id', '?')}[/cyan]",
         f"[bold]Mémoire:[/bold]    [cyan]{result.get('memory_id', '?')}[/cyan]",
-        f"",
-        f"[bold green]Graphe restauré:[/bold green]",
+        "",
+        "[bold green]Graphe restauré:[/bold green]",
         f"  Memory:    [green]{graph.get('memory', 0)}[/green]",
         f"  Documents: [green]{graph.get('documents', 0)}[/green]",
         f"  Entités:   [green]{graph.get('entities', 0)}[/green]",
         f"  Relations: [green]{graph.get('relations', 0)}[/green]",
         f"  Mentions:  [green]{graph.get('mentions', 0)}[/green]",
-        f"",
+        "",
         f"[bold green]Vecteurs:[/bold green]   [green]{result.get('qdrant_vectors_restored', 0)}[/green] restaurés",
         f"[bold]Docs S3:[/bold]    [green]{result.get('s3_documents_ok', 0)}[/green] OK",
     ]
-    
+
     missing = result.get("s3_documents_missing", 0)
     if missing > 0:
         lines.append(f"            [red]{missing} manquant(s)[/red]")
-    
-    lines.append(f"")
+
+    lines.append("")
     lines.append(f"[bold]Temps:[/bold]      [dim]{result.get('elapsed_seconds', 0)}s[/dim]")
-    
-    console.print(Panel.fit(
-        "\n".join(lines),
-        title="📥 Restauration terminée",
-        border_style="green"
-    ))
+
+    console.print(
+        Panel.fit("\n".join(lines), title="📥 Restauration terminée", border_style="green")
+    )
 
 
 def show_about(result: dict):
@@ -873,16 +913,15 @@ def show_about(result: dict):
     from rich.console import Console
     from rich.panel import Panel
     from rich.table import Table
-    from rich.columns import Columns
-    
+
     console = Console()
-    
+
     identity = result.get("identity", {})
     capabilities = result.get("capabilities", {})
     memories = result.get("memories", [])
     services = result.get("services", {})
     config = result.get("configuration", {})
-    
+
     # === Identité ===
     id_text = (
         f"[bold cyan]{identity.get('name', '?')}[/bold cyan] "
@@ -893,32 +932,40 @@ def show_about(result: dict):
         f"[dim]Repo: {identity.get('repo', '')}[/dim]"
     )
     console.print(Panel(id_text, title="🧠 Qui suis-je ?", border_style="cyan"))
-    
+
     # === Services ===
     svc_parts = []
     for name, status in services.items():
         icon = "✅" if status == "ok" else "❌"
         svc_parts.append(f"{icon} {name}")
-    console.print(Panel("  ".join(svc_parts), title="🔌 Services", border_style="green" if all(s == "ok" for s in services.values()) else "red"))
-    
+    console.print(
+        Panel(
+            "  ".join(svc_parts),
+            title="🔌 Services",
+            border_style="green" if all(s == "ok" for s in services.values()) else "red",
+        )
+    )
+
     # === Capacités ===
     cats = capabilities.get("categories", {})
     tools_total = capabilities.get("total_tools", 0)
     cat_parts = [f"[bold]{k}[/bold]: {v}" for k, v in cats.items()]
     formats = ", ".join(capabilities.get("supported_formats", []))
-    
+
     onto_parts = []
     for o in capabilities.get("ontologies", []):
         onto_parts.append(f"• {o.get('name', '?')}: {o.get('description', '')[:60]}")
-    
+
     cap_text = (
         f"[bold]{tools_total} outils MCP[/bold] répartis en {len(cats)} catégories :\n"
-        + "  " + " | ".join(cat_parts) + "\n\n"
+        + "  "
+        + " | ".join(cat_parts)
+        + "\n\n"
         f"[bold]Formats supportés[/bold] : {formats}\n\n"
         f"[bold]Ontologies ({len(onto_parts)})[/bold] :\n" + "\n".join(onto_parts)
     )
     console.print(Panel(cap_text, title="⚡ Capacités", border_style="yellow"))
-    
+
     # === Mémoires actives ===
     if memories:
         table = Table(title=f"📚 Mémoires actives ({len(memories)})", show_lines=False)
@@ -928,7 +975,7 @@ def show_about(result: dict):
         table.add_column("Docs", style="green", justify="right")
         table.add_column("Entités", style="green", justify="right")
         table.add_column("Relations", style="green", justify="right")
-        
+
         for m in memories:
             table.add_row(
                 m.get("id", "?"),
@@ -941,7 +988,7 @@ def show_about(result: dict):
         console.print(table)
     else:
         console.print("[dim]Aucune mémoire active.[/dim]")
-    
+
     # === Configuration ===
     cfg_parts = [
         f"LLM: [bold]{config.get('llm_model', '?')}[/bold]",
@@ -953,20 +1000,26 @@ def show_about(result: dict):
     console.print(Panel("  |  ".join(cfg_parts), title="⚙️ Configuration", border_style="dim"))
 
 
-def show_answer(answer: str, entities: list = None, source_documents: list = None):
+def show_answer(
+    answer: str, entities: Optional[list] = None, source_documents: Optional[list] = None
+):
     """Affiche une réponse Q&A avec les documents sources."""
-    console.print(Panel.fit(
-        Markdown(answer),
-        title="💡 Réponse",
-        border_style="green",
-    ))
+    console.print(
+        Panel.fit(
+            Markdown(answer),
+            title="💡 Réponse",
+            border_style="green",
+        )
+    )
 
     # Documents sources
     if source_documents:
         console.print(f"\n[bold]📄 Documents sources ({len(source_documents)}):[/bold]")
         for doc in source_documents:
             if isinstance(doc, dict):
-                console.print(f"  • [cyan]{doc.get('filename', '?')}[/cyan]  [dim]({doc.get('id', '?')[:8]}…)[/dim]")
+                console.print(
+                    f"  • [cyan]{doc.get('filename', '?')}[/cyan]  [dim]({doc.get('id', '?')[:8]}…)[/dim]"
+                )
             else:
                 console.print(f"  • [cyan]{doc}[/cyan]")
 

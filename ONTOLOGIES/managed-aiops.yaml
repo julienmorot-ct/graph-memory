@@ -96,9 +96,48 @@ entity_types:
   - name: VirtualMachine
     description: Machine virtuelle (CI)
     priority: high
+    attributes:
+      - name: cpu
+        type: integer
+        description: Nombre de vCPU alloués
+        required: true
+        examples: [2, 4, 8, 16]
+      - name: ram
+        type: string
+        description: Quantité de RAM allouée (avec unité)
+        required: true
+        examples: ["4Go", "16Go", "32Go", "64Go"]
+      - name: status
+        type: enum
+        description: État courant de la VM
+        required: true
+        values: [on, off, reboot, pause, suspend, resume]
+        default: "on"
     examples:
-      - "vm-app-prod-01 (8 vCPU, 32Go, Prod)"
-      - "vm-db-prod-02 (16 vCPU, 64Go, Prod)"
+      - "vm-app-prod-01 (8 vCPU, 32Go, RHEL 9.2, on, Prod)"
+      - "vm-db-prod-02 (16 vCPU, 64Go, Windows Server 2022, on, Prod)"
+
+  - name: Disk
+    description: Disque virtuel rattaché à une VM
+    priority: high
+    attributes:
+      - name: capacity
+        type: string
+        description: Capacité du disque (avec unité)
+        required: true
+        examples: ["50Go", "100Go", "500Go", "1To"]
+    examples:
+      - "disk-vm-app-prod-01-sys (50Go)"
+      - "disk-vm-db-prod-02-data (500Go)"
+      - "disk-vm-app-prod-01-data (200Go)"
+
+  - name: StorageRepository
+    description: Dépôt de stockage (SR) hébergeant les disques virtuels
+    priority: medium
+    examples:
+      - "sr002-clu001-ctss-example"
+      - "sr001-clu002-ssd-prod"
+      - "sr003-clu001-hdd-backup"
 
   - name: OperatingSystem
     description: Système d'exploitation
@@ -106,6 +145,7 @@ entity_types:
       - "RHEL 9.2"
       - "Windows Server 2022"
       - "Ubuntu 22.04"
+      - "Debian 12"
 
   - name: Cluster
     description: Cluster générique (applicatif, LB, DB, etc.)
@@ -252,6 +292,26 @@ relation_types:
     description: Possède un OS
     examples:
       - "vm-app-prod-01 → HAS_OS → RHEL 9.2"
+      - "vm-db-prod-02 → HAS_OS → Windows Server 2022"
+
+  - name: HAS_DISK
+    description: Possède un disque virtuel
+    examples:
+      - "vm-app-prod-01 → HAS_DISK → disk-vm-app-prod-01-sys (50Go)"
+      - "vm-db-prod-02 → HAS_DISK → disk-vm-db-prod-02-data (500Go)"
+
+  - name: STORED_ON
+    description: Disque stocké sur un storage repository
+    examples:
+      - "disk-vm-app-prod-01-sys → STORED_ON → sr002-clu001-ctss-example"
+      - "disk-vm-db-prod-02-data → STORED_ON → sr001-clu002-ssd-prod"
+
+  - name: HAS_IP
+    description: Possède une adresse IP (la cible est un ServiceEndpoint)
+    examples:
+      - "vm-app-prod-01 → HAS_IP → 10.10.1.10"
+      - "vm-db-prod-02 → HAS_IP → 10.10.1.20"
+      - "vm-app-prod-01 → HAS_IP → 10.10.2.10"
 
   - name: EXPOSES
     description: Expose un endpoint
@@ -345,6 +405,8 @@ extraction_rules:
     - BusinessService
     - Application
     - VirtualMachine
+    - Disk
+    - StorageRepository
     - DatabaseEngine
     - DatabaseInstance
     - MiddlewareProduct
@@ -364,8 +426,18 @@ extraction_rules:
       ✅ "sqlsrv-erp-prod (SQL Server 2019, Prod)"
       ❌ "SQL Server" seul, ❌ "2019" seul.
 
+    # --- VIRTUAL MACHINES (ENRICHISSEMENT) ---
+    - Chaque VirtualMachine DOIT inclure dans ses attributs : cpu (vCPU), ram, status (on|off|reboot|pause|suspend|resume).
+    - Chaque VM possède au moins un Disk. Crée une entité Disk par disque mentionné,
+      avec sa capacité. Relie-le via HAS_DISK.
+    - Chaque Disk est rattaché à un StorageRepository via STORED_ON.
+    - Les adresses IP d'une VM sont des ServiceEndpoint reliés via HAS_IP.
+      Une VM peut avoir plusieurs IP (ex. admin, data, backup).
+    - Le système d'exploitation reste une entité OperatingSystem reliée via HAS_OS.
+
     # --- ENDPOINTS ---
-    - Les IP/ports/VIP/FQDN/URL doivent être des ServiceEndpoint.
+    - Les VIP/FQDN/URL doivent être des ServiceEndpoint.
+    - Les adresses IP d'une VM sont aussi des ServiceEndpoint, reliées via HAS_IP.
       Ne crée JAMAIS de type "IP", "Port", "URL" ou "Hostname" séparé.
 
     # --- MAPPINGS OBLIGATOIRES (anti-"Other") ---
@@ -396,37 +468,102 @@ examples:
   - context: "Inventaire simplifié (Prod)"
     input: |
       Environnement : Production.
-      VM : vm-app-prod-01 (RHEL 9.2) héberge tomcat-portail-prod-01 (Tomcat 10).
-      VM : vm-db-prod-02 (Windows Server 2022) héberge sqlsrv-erp-prod (SQL Server 2019).
+      VM : vm-app-prod-01 (8 vCPU, 32Go, RHEL 9.2, on) avec IP 10.10.1.10.
+        Disques : disk-sys-01 (50Go, sr002-clu001-ctss-example), disk-data-01 (200Go, sr001-clu002-ssd-prod).
+        Héberge tomcat-portail-prod-01 (Tomcat 10).
+      VM : vm-db-prod-02 (16 vCPU, 64Go, Windows Server 2022, on) avec IP 10.10.1.20.
+        Disques : disk-sys-02 (80Go, sr002-clu001-ctss-example), disk-data-02 (500Go, sr001-clu002-ssd-prod).
+        Héberge sqlsrv-erp-prod (SQL Server 2019).
       Le portail client (portail-web) est exposé via vip-portail-prod (10.10.10.10:443)
       sur aloha-prod-02 (Aloha). Le portail utilise la base sqlsrv-erp-prod.
       Supervision : Centreon. Sauvegarde : Backup quotidien (rétention 30j, RPO 24h).
     expected_entities:
-      - {name: "Production (Prod)", type: "Environment"}
-      - {name: "vm-app-prod-01 (8 vCPU, 32Go, Prod)", type: "VirtualMachine"}
-      - {name: "RHEL 9.2", type: "OperatingSystem"}
-      - {name: "tomcat-portail-prod-01 (Tomcat 10, Prod)", type: "MiddlewareInstance"}
-      - {name: "Tomcat", type: "MiddlewareProduct"}
-      - {name: "vm-db-prod-02 (16 vCPU, 64Go, Prod)", type: "VirtualMachine"}
-      - {name: "Windows Server 2022", type: "OperatingSystem"}
-      - {name: "sqlsrv-erp-prod (SQL Server 2019, Prod)", type: "DatabaseInstance"}
-      - {name: "Microsoft SQL Server", type: "DatabaseEngine"}
-      - {name: "aloha-prod-02 (Aloha, Prod)", type: "LoadBalancerInstance"}
-      - {name: "Aloha (HAProxy commercial)", type: "LoadBalancerProduct"}
-      - {name: "vip-portail-prod (10.10.10.10:443)", type: "ServiceEndpoint"}
-      - {name: "Centreon", type: "MonitoringTool"}
-      - {name: "Backup quotidien (rétention 30j, RPO 24h)", type: "BackupPolicy"}
+      - { name: "Production (Prod)", type: "Environment" }
+      - {
+          name: "vm-app-prod-01 (8 vCPU, 32Go, on, Prod)",
+          type: "VirtualMachine",
+        }
+      - { name: "RHEL 9.2", type: "OperatingSystem" }
+      - { name: "10.10.1.10", type: "ServiceEndpoint" }
+      - { name: "disk-sys-01 (50Go)", type: "Disk" }
+      - { name: "disk-data-01 (200Go)", type: "Disk" }
+      - { name: "sr002-clu001-ctss-example", type: "StorageRepository" }
+      - { name: "sr001-clu002-ssd-prod", type: "StorageRepository" }
+      - {
+          name: "tomcat-portail-prod-01 (Tomcat 10, Prod)",
+          type: "MiddlewareInstance",
+        }
+      - { name: "Tomcat", type: "MiddlewareProduct" }
+      - {
+          name: "vm-db-prod-02 (16 vCPU, 64Go, on, Prod)",
+          type: "VirtualMachine",
+        }
+      - { name: "Windows Server 2022", type: "OperatingSystem" }
+      - { name: "10.10.1.20", type: "ServiceEndpoint" }
+      - { name: "disk-sys-02 (80Go)", type: "Disk" }
+      - { name: "disk-data-02 (500Go)", type: "Disk" }
+      - {
+          name: "sqlsrv-erp-prod (SQL Server 2019, Prod)",
+          type: "DatabaseInstance",
+        }
+      - { name: "Microsoft SQL Server", type: "DatabaseEngine" }
+      - { name: "aloha-prod-02 (Aloha, Prod)", type: "LoadBalancerInstance" }
+      - { name: "Aloha (HAProxy commercial)", type: "LoadBalancerProduct" }
+      - { name: "vip-portail-prod (10.10.10.10:443)", type: "ServiceEndpoint" }
+      - { name: "Centreon", type: "MonitoringTool" }
+      - {
+          name: "Backup quotidien (rétention 30j, RPO 24h)",
+          type: "BackupPolicy",
+        }
     expected_relations:
-      - {from: "vm-app-prod-01", to: "Production (Prod)", type: "DEPLOYED_IN"}
-      - {from: "vm-app-prod-01", to: "RHEL 9.2", type: "HAS_OS"}
-      - {from: "tomcat-portail-prod-01", to: "vm-app-prod-01", type: "RUNS_ON"}
-      - {from: "vm-db-prod-02", to: "Windows Server 2022", type: "HAS_OS"}
-      - {from: "sqlsrv-erp-prod", to: "vm-db-prod-02", type: "RUNS_ON"}
-      - {from: "aloha-prod-02", to: "vip-portail-prod (10.10.10.10:443)", type: "EXPOSES"}
-      - {from: "aloha-prod-02", to: "tomcat-portail-prod-01", type: "LOAD_BALANCES"}
-      - {from: "tomcat-portail-prod-01", to: "sqlsrv-erp-prod", type: "USES_DATABASE"}
-      - {from: "sqlsrv-erp-prod", to: "Backup quotidien (rétention 30j, RPO 24h)", type: "BACKED_UP_BY"}
-      - {from: "vm-db-prod-02", to: "Centreon", type: "MONITORED_BY"}
+      - { from: "vm-app-prod-01", to: "Production (Prod)", type: "DEPLOYED_IN" }
+      - { from: "vm-app-prod-01", to: "RHEL 9.2", type: "HAS_OS" }
+      - { from: "vm-app-prod-01", to: "10.10.1.10", type: "HAS_IP" }
+      - { from: "vm-app-prod-01", to: "disk-sys-01", type: "HAS_DISK" }
+      - { from: "vm-app-prod-01", to: "disk-data-01", type: "HAS_DISK" }
+      - {
+          from: "disk-sys-01",
+          to: "sr002-clu001-ctss-example",
+          type: "STORED_ON",
+        }
+      - { from: "disk-data-01", to: "sr001-clu002-ssd-prod", type: "STORED_ON" }
+      - {
+          from: "tomcat-portail-prod-01",
+          to: "vm-app-prod-01",
+          type: "RUNS_ON",
+        }
+      - { from: "vm-db-prod-02", to: "Windows Server 2022", type: "HAS_OS" }
+      - { from: "vm-db-prod-02", to: "10.10.1.20", type: "HAS_IP" }
+      - { from: "vm-db-prod-02", to: "disk-sys-02", type: "HAS_DISK" }
+      - { from: "vm-db-prod-02", to: "disk-data-02", type: "HAS_DISK" }
+      - {
+          from: "disk-sys-02",
+          to: "sr002-clu001-ctss-example",
+          type: "STORED_ON",
+        }
+      - { from: "disk-data-02", to: "sr001-clu002-ssd-prod", type: "STORED_ON" }
+      - { from: "sqlsrv-erp-prod", to: "vm-db-prod-02", type: "RUNS_ON" }
+      - {
+          from: "aloha-prod-02",
+          to: "vip-portail-prod (10.10.10.10:443)",
+          type: "EXPOSES",
+        }
+      - {
+          from: "aloha-prod-02",
+          to: "tomcat-portail-prod-01",
+          type: "LOAD_BALANCES",
+        }
+      - {
+          from: "tomcat-portail-prod-01",
+          to: "sqlsrv-erp-prod",
+          type: "USES_DATABASE",
+        }
+      - {
+          from: "sqlsrv-erp-prod",
+          to: "Backup quotidien (rétention 30j, RPO 24h)",
+          type: "BACKED_UP_BY",
+        }
+      - { from: "vm-db-prod-02", to: "Centreon", type: "MONITORED_BY" }
 
   - context: "Architecture d'exploitation (HAProxy + PostgreSQL replication)"
     input: |
@@ -437,25 +574,276 @@ examples:
       SLA : Disponibilité 99.9%, GTI 15 minutes.
       Runbook : Procédure de bascule PostgreSQL (streaming replication).
     expected_entities:
-      - {name: "Service Facturation", type: "BusinessService"}
-      - {name: "billing-api", type: "Application"}
-      - {name: "vm-app-prod-01 (8 vCPU, 32Go, Prod)", type: "VirtualMachine"}
-      - {name: "haproxy-prod-01 (HAProxy 2.6, Prod)", type: "LoadBalancerInstance"}
-      - {name: "HAProxy", type: "LoadBalancerProduct"}
-      - {name: "https://facturation.exemple.fr", type: "ServiceEndpoint"}
-      - {name: "pg-billing-prod (PostgreSQL 15, Prod)", type: "DatabaseInstance"}
-      - {name: "PostgreSQL", type: "DatabaseEngine"}
-      - {name: "pg-billing-dr (PostgreSQL 15, DR)", type: "DatabaseInstance"}
-      - {name: "Disponibilité 99.9%", type: "SLA"}
-      - {name: "GTI 15 minutes", type: "SLA"}
-      - {name: "Procédure de bascule PostgreSQL (streaming replication)", type: "Runbook"}
+      - { name: "Service Facturation", type: "BusinessService" }
+      - { name: "billing-api", type: "Application" }
+      - {
+          name: "vm-app-prod-01 (8 vCPU, 32Go, on, Prod)",
+          type: "VirtualMachine",
+        }
+      - {
+          name: "haproxy-prod-01 (HAProxy 2.6, Prod)",
+          type: "LoadBalancerInstance",
+        }
+      - { name: "HAProxy", type: "LoadBalancerProduct" }
+      - { name: "https://facturation.exemple.fr", type: "ServiceEndpoint" }
+      - {
+          name: "pg-billing-prod (PostgreSQL 15, Prod)",
+          type: "DatabaseInstance",
+        }
+      - { name: "PostgreSQL", type: "DatabaseEngine" }
+      - { name: "pg-billing-dr (PostgreSQL 15, DR)", type: "DatabaseInstance" }
+      - { name: "Disponibilité 99.9%", type: "SLA" }
+      - { name: "GTI 15 minutes", type: "SLA" }
+      - {
+          name: "Procédure de bascule PostgreSQL (streaming replication)",
+          type: "Runbook",
+        }
     expected_relations:
-      - {from: "billing-api", to: "Service Facturation", type: "PART_OF"}
-      - {from: "billing-api", to: "vm-app-prod-01", type: "RUNS_ON"}
-      - {from: "haproxy-prod-01", to: "https://facturation.exemple.fr", type: "EXPOSES"}
-      - {from: "haproxy-prod-01", to: "billing-api", type: "LOAD_BALANCES"}
-      - {from: "billing-api", to: "pg-billing-prod", type: "USES_DATABASE"}
-      - {from: "pg-billing-prod", to: "pg-billing-dr", type: "REPLICATED_TO"}
-      - {from: "Service Facturation", to: "Disponibilité 99.9%", type: "HAS_SLA"}
-      - {from: "Service Facturation", to: "GTI 15 minutes", type: "HAS_SLA"}
-      - {from: "pg-billing-prod", to: "Procédure de bascule PostgreSQL (streaming replication)", type: "DOCUMENTED_BY"}
+      - { from: "billing-api", to: "Service Facturation", type: "PART_OF" }
+      - { from: "billing-api", to: "vm-app-prod-01", type: "RUNS_ON" }
+      - {
+          from: "haproxy-prod-01",
+          to: "https://facturation.exemple.fr",
+          type: "EXPOSES",
+        }
+      - { from: "haproxy-prod-01", to: "billing-api", type: "LOAD_BALANCES" }
+      - { from: "billing-api", to: "pg-billing-prod", type: "USES_DATABASE" }
+      - { from: "pg-billing-prod", to: "pg-billing-dr", type: "REPLICATED_TO" }
+      - {
+          from: "Service Facturation",
+          to: "Disponibilité 99.9%",
+          type: "HAS_SLA",
+        }
+      - { from: "Service Facturation", to: "GTI 15 minutes", type: "HAS_SLA" }
+      - {
+          from: "pg-billing-prod",
+          to: "Procédure de bascule PostgreSQL (streaming replication)",
+          type: "DOCUMENTED_BY",
+        }
+
+  - context: "Inventaire détaillé VM — Préprod & DR (multi-disques, multi-IP, statuts variés)"
+    input: |
+      Environnement : Préproduction.
+      Équipe responsable : MCO Applicatif (Cloud Temple).
+      Fenêtre de maintenance : Dimanche 02h-06h.
+      Patching : Mensuel, criticité haute uniquement.
+
+      VM : vm-web-preprod-01 (4 vCPU, 16Go, Debian 12, on).
+        IP : 10.20.1.10 (réseau applicatif), 10.20.100.10 (réseau admin).
+        Disques :
+          - disk-web-pp01-sys (40Go) sur sr003-clu002-ssd-preprod
+          - disk-web-pp01-logs (100Go) sur sr004-clu002-hdd-preprod
+        Héberge jboss-portail-preprod-01 (JBoss EAP 7.4).
+        Le portail préprod est exposé via https://portail-preprod.exemple.fr.
+        Supervisé par Zabbix.
+
+      VM : vm-db-preprod-01 (8 vCPU, 32Go, RHEL 9.2, on).
+        IP : 10.20.1.20.
+        Disques :
+          - disk-db-pp01-sys (60Go) sur sr003-clu002-ssd-preprod
+          - disk-db-pp01-data (300Go) sur sr005-clu002-ssd-perf
+          - disk-db-pp01-redo (50Go) sur sr005-clu002-ssd-perf
+        Héberge ora-portail-preprod (Oracle 19c).
+        jboss-portail-preprod-01 utilise la base ora-portail-preprod.
+        Sauvegarde : RMAN quotidien (rétention 14j, RPO 12h).
+
+      Environnement : Disaster Recovery.
+      VM : vm-db-dr-01 (8 vCPU, 32Go, RHEL 9.2, suspend).
+        IP : 10.30.1.20.
+        Disques :
+          - disk-db-dr01-sys (60Go) sur sr010-clu003-hdd-dr
+          - disk-db-dr01-data (300Go) sur sr011-clu003-ssd-dr
+        Héberge ora-portail-dr (Oracle 19c), répliqué depuis ora-portail-preprod via Data Guard.
+        Runbook : Procédure de bascule Oracle Data Guard.
+
+    expected_entities:
+      - { name: "Préproduction (Preprod)", type: "Environment" }
+      - { name: "Disaster Recovery (DR)", type: "Environment" }
+      - { name: "MCO Applicatif", type: "Team" }
+      - { name: "Cloud Temple", type: "Organization" }
+      - { name: "Dimanche 02h-06h", type: "MaintenanceWindow" }
+      - { name: "Mensuel, criticité haute uniquement", type: "PatchPolicy" }
+      # --- vm-web-preprod-01 ---
+      - {
+          name: "vm-web-preprod-01 (4 vCPU, 16Go, on, Preprod)",
+          type: "VirtualMachine",
+        }
+      - { name: "Debian 12", type: "OperatingSystem" }
+      - { name: "10.20.1.10", type: "ServiceEndpoint" }
+      - { name: "10.20.100.10", type: "ServiceEndpoint" }
+      - { name: "disk-web-pp01-sys (40Go)", type: "Disk" }
+      - { name: "disk-web-pp01-logs (100Go)", type: "Disk" }
+      - { name: "sr003-clu002-ssd-preprod", type: "StorageRepository" }
+      - { name: "sr004-clu002-hdd-preprod", type: "StorageRepository" }
+      - {
+          name: "jboss-portail-preprod-01 (JBoss EAP 7.4, Preprod)",
+          type: "MiddlewareInstance",
+        }
+      - { name: "JBoss EAP", type: "MiddlewareProduct" }
+      - { name: "https://portail-preprod.exemple.fr", type: "ServiceEndpoint" }
+      - { name: "Zabbix", type: "MonitoringTool" }
+      # --- vm-db-preprod-01 ---
+      - {
+          name: "vm-db-preprod-01 (8 vCPU, 32Go, on, Preprod)",
+          type: "VirtualMachine",
+        }
+      - { name: "RHEL 9.2", type: "OperatingSystem" }
+      - { name: "10.20.1.20", type: "ServiceEndpoint" }
+      - { name: "disk-db-pp01-sys (60Go)", type: "Disk" }
+      - { name: "disk-db-pp01-data (300Go)", type: "Disk" }
+      - { name: "disk-db-pp01-redo (50Go)", type: "Disk" }
+      - { name: "sr005-clu002-ssd-perf", type: "StorageRepository" }
+      - {
+          name: "ora-portail-preprod (Oracle 19c, Preprod)",
+          type: "DatabaseInstance",
+        }
+      - { name: "Oracle", type: "DatabaseEngine" }
+      - {
+          name: "RMAN quotidien (rétention 14j, RPO 12h)",
+          type: "BackupPolicy",
+        }
+      # --- vm-db-dr-01 ---
+      - {
+          name: "vm-db-dr-01 (8 vCPU, 32Go, suspend, DR)",
+          type: "VirtualMachine",
+        }
+      - { name: "10.30.1.20", type: "ServiceEndpoint" }
+      - { name: "disk-db-dr01-sys (60Go)", type: "Disk" }
+      - { name: "disk-db-dr01-data (300Go)", type: "Disk" }
+      - { name: "sr010-clu003-hdd-dr", type: "StorageRepository" }
+      - { name: "sr011-clu003-ssd-dr", type: "StorageRepository" }
+      - { name: "ora-portail-dr (Oracle 19c, DR)", type: "DatabaseInstance" }
+      - { name: "Procédure de bascule Oracle Data Guard", type: "Runbook" }
+
+    expected_relations:
+      # --- Contexte organisationnel ---
+      - { from: "MCO Applicatif", to: "Cloud Temple", type: "PART_OF" }
+      - {
+          from: "vm-web-preprod-01",
+          to: "Préproduction (Preprod)",
+          type: "DEPLOYED_IN",
+        }
+      - {
+          from: "vm-db-preprod-01",
+          to: "Préproduction (Preprod)",
+          type: "DEPLOYED_IN",
+        }
+      - {
+          from: "vm-db-dr-01",
+          to: "Disaster Recovery (DR)",
+          type: "DEPLOYED_IN",
+        }
+      - {
+          from: "vm-web-preprod-01",
+          to: "Dimanche 02h-06h",
+          type: "MAINTAINED_DURING",
+        }
+      - {
+          from: "vm-web-preprod-01",
+          to: "Mensuel, criticité haute uniquement",
+          type: "PATCHED_BY",
+        }
+      # --- vm-web-preprod-01 : OS, IP, disques ---
+      - { from: "vm-web-preprod-01", to: "Debian 12", type: "HAS_OS" }
+      - { from: "vm-web-preprod-01", to: "10.20.1.10", type: "HAS_IP" }
+      - { from: "vm-web-preprod-01", to: "10.20.100.10", type: "HAS_IP" }
+      - { from: "vm-web-preprod-01", to: "disk-web-pp01-sys", type: "HAS_DISK" }
+      - {
+          from: "vm-web-preprod-01",
+          to: "disk-web-pp01-logs",
+          type: "HAS_DISK",
+        }
+      - {
+          from: "disk-web-pp01-sys",
+          to: "sr003-clu002-ssd-preprod",
+          type: "STORED_ON",
+        }
+      - {
+          from: "disk-web-pp01-logs",
+          to: "sr004-clu002-hdd-preprod",
+          type: "STORED_ON",
+        }
+      # --- vm-web-preprod-01 : middleware, endpoint, monitoring ---
+      - {
+          from: "jboss-portail-preprod-01",
+          to: "vm-web-preprod-01",
+          type: "RUNS_ON",
+        }
+      - {
+          from: "jboss-portail-preprod-01",
+          to: "https://portail-preprod.exemple.fr",
+          type: "EXPOSES",
+        }
+      - { from: "vm-web-preprod-01", to: "Zabbix", type: "MONITORED_BY" }
+      # --- vm-db-preprod-01 : OS, IP, disques ---
+      - { from: "vm-db-preprod-01", to: "RHEL 9.2", type: "HAS_OS" }
+      - { from: "vm-db-preprod-01", to: "10.20.1.20", type: "HAS_IP" }
+      - { from: "vm-db-preprod-01", to: "disk-db-pp01-sys", type: "HAS_DISK" }
+      - { from: "vm-db-preprod-01", to: "disk-db-pp01-data", type: "HAS_DISK" }
+      - { from: "vm-db-preprod-01", to: "disk-db-pp01-redo", type: "HAS_DISK" }
+      - {
+          from: "disk-db-pp01-sys",
+          to: "sr003-clu002-ssd-preprod",
+          type: "STORED_ON",
+        }
+      - {
+          from: "disk-db-pp01-data",
+          to: "sr005-clu002-ssd-perf",
+          type: "STORED_ON",
+        }
+      - {
+          from: "disk-db-pp01-redo",
+          to: "sr005-clu002-ssd-perf",
+          type: "STORED_ON",
+        }
+      # --- vm-db-preprod-01 : base, middleware, backup ---
+      - { from: "ora-portail-preprod", to: "vm-db-preprod-01", type: "RUNS_ON" }
+      - {
+          from: "jboss-portail-preprod-01",
+          to: "ora-portail-preprod",
+          type: "USES_DATABASE",
+        }
+      - {
+          from: "ora-portail-preprod",
+          to: "RMAN quotidien (rétention 14j, RPO 12h)",
+          type: "BACKED_UP_BY",
+        }
+      # --- vm-db-dr-01 : OS, IP, disques ---
+      - { from: "vm-db-dr-01", to: "RHEL 9.2", type: "HAS_OS" }
+      - { from: "vm-db-dr-01", to: "10.30.1.20", type: "HAS_IP" }
+      - { from: "vm-db-dr-01", to: "disk-db-dr01-sys", type: "HAS_DISK" }
+      - { from: "vm-db-dr-01", to: "disk-db-dr01-data", type: "HAS_DISK" }
+      - {
+          from: "disk-db-dr01-sys",
+          to: "sr010-clu003-hdd-dr",
+          type: "STORED_ON",
+        }
+      - {
+          from: "disk-db-dr01-data",
+          to: "sr011-clu003-ssd-dr",
+          type: "STORED_ON",
+        }
+      # --- vm-db-dr-01 : réplication, runbook ---
+      - { from: "ora-portail-dr", to: "vm-db-dr-01", type: "RUNS_ON" }
+      - {
+          from: "ora-portail-preprod",
+          to: "ora-portail-dr",
+          type: "REPLICATED_TO",
+        }
+      - {
+          from: "ora-portail-dr",
+          to: "Procédure de bascule Oracle Data Guard",
+          type: "DOCUMENTED_BY",
+        }
+      # --- Gestion ---
+      - {
+          from: "MCO Applicatif",
+          to: "vm-web-preprod-01",
+          type: "RESPONSIBLE_FOR",
+        }
+      - {
+          from: "MCO Applicatif",
+          to: "vm-db-preprod-01",
+          type: "RESPONSIBLE_FOR",
+        }
+      - { from: "MCO Applicatif", to: "vm-db-dr-01", type: "RESPONSIBLE_FOR" }

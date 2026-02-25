@@ -6,17 +6,19 @@ Définit les structures de données utilisées dans tout le service.
 """
 
 from datetime import datetime
-from typing import Optional, List, Dict, Any
 from enum import Enum
-from pydantic import BaseModel, Field
+from typing import Any, Dict, List, Optional
 
+from pydantic import BaseModel, Field
 
 # =============================================================================
 # Enums
 # =============================================================================
 
+
 class EntityType(str, Enum):
     """Types d'entités reconnus."""
+
     PERSON = "Person"
     ORGANIZATION = "Organization"
     CONCEPT = "Concept"
@@ -26,14 +28,15 @@ class EntityType(str, Enum):
     SERVICE = "Service"
     CLAUSE = "Clause"
     CERTIFICATION = "Certification"  # ISO 27001, HDS, SecNumCloud
-    METRIC = "Metric"                # SLA 99.95%, GTI 15 min
-    DURATION = "Duration"            # 36 mois, préavis 6 mois
-    AMOUNT = "Amount"                # 50 000 EUR/mois
+    METRIC = "Metric"  # SLA 99.95%, GTI 15 min
+    DURATION = "Duration"  # 36 mois, préavis 6 mois
+    AMOUNT = "Amount"  # 50 000 EUR/mois
     OTHER = "Other"
 
 
 class RelationType(str, Enum):
     """Types de relations reconnus."""
+
     MENTIONS = "MENTIONS"
     DEFINES = "DEFINES"
     RELATED_TO = "RELATED_TO"
@@ -46,42 +49,52 @@ class RelationType(str, Enum):
 
 class SearchMode(str, Enum):
     """Modes de recherche disponibles."""
-    GRAPH = "graph"      # Recherche graphe uniquement
-    VECTOR = "vector"    # Recherche vectorielle uniquement
-    AUTO = "auto"        # Graph-first, fallback vector si nécessaire
+
+    GRAPH = "graph"  # Recherche graphe uniquement
+    VECTOR = "vector"  # Recherche vectorielle uniquement
+    AUTO = "auto"  # Graph-first, fallback vector si nécessaire
 
 
 # =============================================================================
 # Entités & Relations (pour extraction LLM)
 # =============================================================================
 
+
 class ExtractedEntity(BaseModel):
     """Entité extraite par le LLM.
-    
+
     Note: 'type' est une string libre depuis v1.3.1 pour supporter les types
     dynamiques des ontologies (presales, cloud, etc.) sans être limité à l'Enum
     EntityType. L'Enum est conservée pour la compatibilité avec le code existant.
     """
+
     name: str = Field(..., description="Nom de l'entité")
-    type: str = Field(default="Other", description="Type d'entité (string libre, supporte les types d'ontologie)")
+    type: str = Field(
+        default="Other", description="Type d'entité (string libre, supporte les types d'ontologie)"
+    )
     description: Optional[str] = Field(None, description="Description contextuelle")
     aliases: List[str] = Field(default_factory=list, description="Noms alternatifs")
 
 
 class ExtractedRelation(BaseModel):
     """Relation extraite par le LLM."""
+
     from_entity: str = Field(..., description="Nom de l'entité source")
     to_entity: str = Field(..., description="Nom de l'entité cible")
-    type: str = Field(default="RELATED_TO", description="Type de relation (string libre, supporte les types d'ontologie)")
+    type: str = Field(
+        default="RELATED_TO",
+        description="Type de relation (string libre, supporte les types d'ontologie)",
+    )
     description: Optional[str] = Field(None, description="Description de la relation")
     weight: float = Field(default=1.0, ge=0.0, le=1.0, description="Force de la relation")
-    
+
     class Config:
         use_enum_values = True
 
 
 class ExtractionResult(BaseModel):
     """Résultat complet d'une extraction LLM."""
+
     entities: List[ExtractedEntity] = Field(default_factory=list)
     relations: List[ExtractedRelation] = Field(default_factory=list)
     summary: Optional[str] = Field(None, description="Résumé du document")
@@ -92,8 +105,10 @@ class ExtractionResult(BaseModel):
 # Documents
 # =============================================================================
 
+
 class DocumentMetadata(BaseModel):
     """Métadonnées d'un document."""
+
     filename: str
     content_type: Optional[str] = None
     size_bytes: Optional[int] = None
@@ -103,6 +118,7 @@ class DocumentMetadata(BaseModel):
 
 class Document(BaseModel):
     """Représentation d'un document dans le système."""
+
     id: str = Field(..., description="Identifiant unique (UUID)")
     memory_id: str = Field(..., description="ID de la mémoire propriétaire")
     uri: str = Field(..., description="URI S3 du document")
@@ -118,12 +134,16 @@ class Document(BaseModel):
 # Mémoires
 # =============================================================================
 
+
 class Memory(BaseModel):
     """Représentation d'une mémoire (namespace)."""
+
     id: str = Field(..., description="Identifiant unique de la mémoire")
     name: str = Field(..., description="Nom lisible")
     description: Optional[str] = None
-    ontology: str = Field(default="default", description="Nom de l'ontologie utilisée pour l'extraction")
+    ontology: str = Field(
+        default="default", description="Nom de l'ontologie utilisée pour l'extraction"
+    )
     ontology_uri: Optional[str] = Field(None, description="URI S3 de l'ontologie copiée")
     created_at: datetime = Field(default_factory=datetime.utcnow)
     owner_token: Optional[str] = Field(None, description="Token propriétaire")
@@ -131,6 +151,7 @@ class Memory(BaseModel):
 
 class MemoryStats(BaseModel):
     """Statistiques d'une mémoire."""
+
     memory_id: str
     document_count: int = 0
     entity_count: int = 0
@@ -144,8 +165,10 @@ class MemoryStats(BaseModel):
 # Recherche
 # =============================================================================
 
+
 class SearchResult(BaseModel):
     """Résultat d'une recherche."""
+
     query: str
     mode: SearchMode
     confidence: float = Field(ge=0.0, le=1.0)
@@ -158,6 +181,7 @@ class SearchResult(BaseModel):
 
 class GraphContext(BaseModel):
     """Contexte d'une entité dans le graphe."""
+
     entity_name: str
     entity_type: Optional[str] = None
     depth: int = 1
@@ -170,28 +194,32 @@ class GraphContext(BaseModel):
 # Chunks (pour RAG vectoriel)
 # =============================================================================
 
+
 class Chunk(BaseModel):
     """
     Fragment sémantique d'un document.
-    
+
     Créé par le SemanticChunker, stocké dans Qdrant avec son embedding.
     Chaque chunk respecte les frontières naturelles du texte :
     sections, articles, paragraphes, phrases.
     """
+
     text: str = Field(..., description="Contenu textuel du chunk")
     index: int = Field(..., description="Position du chunk dans le document (0-based)")
     total_chunks: int = Field(default=0, description="Nombre total de chunks du document")
-    
+
     # Métadonnées de provenance
     doc_id: Optional[str] = Field(None, description="ID du document source")
     memory_id: Optional[str] = Field(None, description="ID de la mémoire")
     filename: Optional[str] = Field(None, description="Nom du fichier source")
-    
+
     # Métadonnées sémantiques (détectées par le chunker)
     section_title: Optional[str] = Field(None, description="Titre de la section englobante")
     article_number: Optional[str] = Field(None, description="Numéro d'article (ex: '23.2')")
-    heading_hierarchy: List[str] = Field(default_factory=list, description="Hiérarchie de titres (ex: ['Titre III', 'Article 23'])")
-    
+    heading_hierarchy: List[str] = Field(
+        default_factory=list, description="Hiérarchie de titres (ex: ['Titre III', 'Article 23'])"
+    )
+
     # Statistiques
     char_count: int = Field(default=0, description="Nombre de caractères")
     token_estimate: int = Field(default=0, description="Estimation du nombre de tokens")
@@ -200,12 +228,13 @@ class Chunk(BaseModel):
 class ChunkResult(BaseModel):
     """
     Résultat d'une recherche vectorielle dans Qdrant.
-    
+
     Contient le chunk retrouvé + son score de similarité.
     """
+
     chunk: Chunk
     score: float = Field(..., ge=0.0, le=1.0, description="Score de similarité cosinus")
-    
+
     # Contexte pour le prompt LLM
     @property
     def context_text(self) -> str:
@@ -226,8 +255,10 @@ class ChunkResult(BaseModel):
 # Tokens / Auth
 # =============================================================================
 
+
 class TokenInfo(BaseModel):
     """Information sur un token client."""
+
     token_hash: str = Field(..., description="Hash du token (pas le token lui-même)")
     client_name: str
     email: Optional[str] = Field(None, description="Adresse email du propriétaire du token")
@@ -235,11 +266,14 @@ class TokenInfo(BaseModel):
     expires_at: Optional[datetime] = None
     permissions: List[str] = Field(default_factory=list)
     is_active: bool = True
-    memory_ids: List[str] = Field(default_factory=list, description="Mémoires autorisées (vide = toutes)")
+    memory_ids: List[str] = Field(
+        default_factory=list, description="Mémoires autorisées (vide = toutes)"
+    )
 
 
 class TokenCreateRequest(BaseModel):
     """Requête de création de token."""
+
     client_name: str
     email: Optional[str] = Field(None, description="Adresse email du propriétaire")
     permissions: List[str] = Field(default_factory=lambda: ["read", "write"])
