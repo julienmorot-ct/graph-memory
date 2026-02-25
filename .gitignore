@@ -28,6 +28,7 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+.ruff_cache
 
 # === Virtual Environments ===
 venv/
@@ -69,6 +70,7 @@ temp/
 
 # === Données métier (confidentielles) ===
 /JURIDIQUE/
+test-data
 
 # === Cline (fichiers internes de travail) ===
 /.clinerules/
