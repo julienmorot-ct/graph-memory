@@ -1,0 +1,63 @@
+{
+  "benchmark": "LoCoMo",
+  "tasks": {
+    "question_answering": {
+      "benchmark_name": "LoCoMo",
+      "model_name": "graph-memory",
+      "adapter_type": "GraphMemoryAdapter",
+      "overall_scores": {
+        "question_answering": 0.4246058076508112,
+        "qa_f1": 0.34420379760055997,
+        "qa_em": 0.09547738693467336,
+        "qa_temporal_f1": 0.2792792792792793,
+        "qa_temporal_em": 0.13513513513513514,
+        "qa_commonsense_f1": 0.11593406593406595,
+        "qa_commonsense_em": 0.0,
+        "qa_single_hop_f1": 0.3084210927960928,
+        "qa_single_hop_em": 0.03125,
+        "qa_open_domain_f1": 0.42552292232228967,
+        "qa_open_domain_em": 0.17142857142857143,
+        "qa_adversarial_f1": 0.3617021276595745,
+        "qa_adversarial_em": 0.02127659574468085
+      },
+      "config": {
+        "context_type": "dialog",
+        "top_k": 10,
+        "categories": "all"
+      },
+      "task_results": [
+        {
+          "sample_id": "conv-26",
+          "task_name": "question_answering",
+          "overall_score": 0.4246058076508112,
+          "category_scores": {
+            "temporal_f1": 0.2792792792792793,
+            "temporal_em": 0.13513513513513514,
+            "temporal_count": 37.0,
+            "commonsense_f1": 0.11593406593406595,
+            "commonsense_em": 0.0,
+            "commonsense_count": 13.0,
+            "single_hop_f1": 0.3084210927960928,
+            "single_hop_em": 0.03125,
+            "single_hop_count": 32.0,
+            "open_domain_f1": 0.42552292232228967,
+            "open_domain_em": 0.17142857142857143,
+            "open_domain_count": 70.0,
+            "adversarial_f1": 0.7021276595744681,
+            "adversarial_em": 0.7021276595744681,
+            "adversarial_count": 47.0,
+            "adversarial_tricked_rate": 0.2978723404255319
+          },
+          "num_predictions": 199,
+          "metadata": {
+            "elapsed_seconds": 420.36,
+            "context_type": "dialog",
+            "top_k": 10,
+            "adapter": "graph-memory"
+          }
+        }
+      ]
+    }
+  },
+  "total_elapsed_seconds": 421.4
+}
