@@ -7,7 +7,7 @@
 # schémas d'architecture d'exploitation et documents MCO.
 
 name: managed-aiops
-version: "1.0"
+version: "1.4"
 description: |
   Ontologie CI/CMDB orientée infogérance (AIOps).
   Optimisée pour extraire les Configuration Items (CI) typiques :
@@ -23,12 +23,15 @@ context: |
   - les instances (VM, DB instance, middleware instance, load balancer instance)
   - les relations de dépendance (RUNS_ON, USES_DATABASE, LOAD_BALANCED_BY, etc.)
   - l'environnement (Prod/Préprod/Dev/DR)
+  - le réseau CMDB (interfaces, IP, subnets, VLAN, DNS)
   - les règles d'exploitation (monitoring, backup, patch, fenêtre de maintenance)
 
   IMPORTANT :
   - Les inventaires sont souvent sous forme de tableaux : 1 ligne = 1 CI.
-  - Ne crée pas une entité par cellule (IP/port/version isolés). Intègre ces
-    informations dans le nom/description des CI.
+  - Ne crée pas une entité par cellule (valeurs isolées).
+  - Les IP/Subnet/VLAN/DNS sont des entités (CMDB réseau), MAIS elles doivent être
+    reliées à des CI via des relations (HAS_INTERFACE/HAS_IP/IN_SUBNET/IN_VLAN/etc.).
+  - Ne crée JAMAIS une entité "Port" isolée.
 
 # =============================================================================
 # Types d'entités (CI/CMDB)
@@ -54,6 +57,237 @@ entity_types:
       - "DBA"
       - "Administrateur Systèmes"
       - "Exploitant"
+
+  # --- CMDB++ (Asset & Lifecycle) ---
+  - name: AssetTag
+    description: Identifiant d'asset / tag d'inventaire (CMDB)
+    priority: high
+    examples:
+      - "CT-VM-000123"
+      - "ASSET-DB-0456"
+      - "TAG: SRV-PROD-001"
+
+  - name: SerialNumber
+    description: Numéro de série matériel/logiciel (si explicitement présent)
+    examples:
+      - "SN: ABCD1234EFGH"
+      - "Serial: J8K9L0M1"
+
+  - name: LifecycleState
+    description: État de cycle de vie du CI
+    priority: high
+    examples:
+      - "Active"
+      - "Planned"
+      - "Maintenance"
+      - "Retired"
+
+  - name: Criticality
+    description: Criticité métier / opérationnelle
+    priority: high
+    examples:
+      - "Criticalité High (P1)"
+      - "Criticalité Medium (P2)"
+      - "Criticalité Low (P3)"
+
+  # --- CMDB++ (Compute & Storage) ---
+  - name: CPU
+    description: Ressource CPU (vCPU/cores/modèle) associée à un CI
+    examples:
+      - "CPU 8 vCPU"
+      - "CPU 16 cores"
+      - "CPU Intel Xeon Gold 6354 (16 cores)"
+
+  - name: Memory
+    description: Ressource mémoire associée à un CI
+    examples:
+      - "RAM 32 Go"
+      - "RAM 64 Go"
+
+  - name: Disk
+    description: Disque (physique ou virtuel) associé à un CI
+    examples:
+      - "Disk sda (500 Go SSD)"
+      - "Disk nvme0n1 (1 To NVMe)"
+      - "Disk vda (200 Go)"
+
+  - name: Volume
+    description: Volume logique (LVM/LUN/partition/logical volume)
+    examples:
+      - "Volume vg0-lv_data (200 Go)"
+      - "Partition /dev/sda2 (100 Go)"
+
+  - name: FileSystem
+    description: Système de fichiers (type + taille)
+    examples:
+      - "ext4 (200 Go)"
+      - "xfs (500 Go)"
+
+  - name: MountPoint
+    description: Point de montage (Linux)
+    examples:
+      - "/"
+      - "/var"
+      - "/var/lib/postgresql"
+      - "/data"
+
+  # --- CMDB++ (Linux OS baseline) ---
+  - name: OSDistribution
+    description: Distribution Linux
+    priority: high
+    examples:
+      - "RHEL"
+      - "Ubuntu"
+      - "Debian"
+
+  - name: OSVersion
+    description: Version de distribution Linux
+    priority: high
+    examples:
+      - "9.2"
+      - "22.04"
+      - "12 (Bookworm)"
+
+  - name: KernelVersion
+    description: Version du kernel Linux
+    examples:
+      - "5.14.0-362.13.1.el9_3.x86_64"
+      - "6.5.0-21-generic"
+
+  - name: PackageRepository
+    description: Dépôt de paquets configuré (yum/dnf/apt)
+    examples:
+      - "repo: rhel-9-baseos-rpms"
+      - "repo: rhel-9-appstream-rpms"
+      - "repo: ppa:ondrej/php"
+
+  - name: SystemdService
+    description: Service systemd actif/enabled
+    examples:
+      - "sshd (enabled, active)"
+      - "chronyd (enabled, active)"
+      - "firewalld (enabled, active)"
+
+  - name: SSHConfig
+    description: Configuration SSH/SSHD (directives clés)
+    examples:
+      - "sshd_config: PermitRootLogin=no; PasswordAuthentication=no"
+      - "sshd_config: Port=22; AllowGroups=sshadmins"
+
+  - name: LocalUser
+    description: Compte utilisateur local Linux
+    examples:
+      - "user: admin"
+      - "user: svc_backup"
+      - "user: postgres"
+
+  - name: LocalGroup
+    description: Groupe local Linux
+    examples:
+      - "group: wheel"
+      - "group: sshadmins"
+
+  - name: AuthProvider
+    description: Fournisseur d'authentification (local, LDAP, FreeIPA, AD, Kerberos)
+    examples:
+      - "Local"
+      - "LDAP"
+      - "FreeIPA"
+      - "Active Directory"
+      - "Kerberos"
+
+  - name: Route
+    description: Route réseau (Linux)
+    examples:
+      - "default via 10.10.10.1 dev eth0"
+      - "10.20.0.0/16 via 10.10.10.254 dev eth0"
+
+  # --- CMDB++ (Windows OS baseline - ops applicatives) ---
+  - name: WindowsEdition
+    description: Édition Windows
+    priority: high
+    examples:
+      - "Windows Server"
+      - "Windows Server Datacenter"
+
+  - name: WindowsVersion
+    description: Version Windows (année/édition)
+    priority: high
+    examples:
+      - "2022"
+      - "2019"
+
+  - name: WindowsBuild
+    description: Numéro de build Windows
+    examples:
+      - "Build 20348.2402"
+      - "Build 17763.5458"
+
+  - name: Domain
+    description: Domaine Active Directory
+    priority: high
+    examples:
+      - "corp.local"
+      - "ad.cloud-temple.local"
+
+  - name: WindowsRoleFeature
+    description: Rôle ou feature Windows (Server Manager)
+    examples:
+      - "IIS (Web-Server)"
+      - ".NET Framework 4.8"
+      - "Failover Clustering"
+      - "Windows Defender"
+
+  - name: WindowsService
+    description: Service Windows (idéalement Running/Automatic)
+    examples:
+      - "W3SVC (World Wide Web Publishing Service)"
+      - "W32Time (Windows Time)"
+      - "MSSQLSERVER (SQL Server)"
+
+  - name: ScheduledTask
+    description: Tâche planifiée Windows
+    examples:
+      - "\\Microsoft\\Windows\\Defender\\Windows Defender Scheduled Scan"
+      - "\\Company\\Backup\\NightlyBackup"
+
+  - name: WindowsLocalUser
+    description: Compte utilisateur local Windows
+    examples:
+      - "user: Administrator"
+      - "user: svc_iis"
+      - "user: svc_backup"
+
+  - name: WindowsLocalGroup
+    description: Groupe local Windows
+    examples:
+      - "group: Administrators"
+      - "group: Remote Desktop Users"
+
+  - name: WindowsFirewallRule
+    description: Règle firewall Windows (in/out, proto, port) — intégrer les ports dans le nom
+    examples:
+      - "Inbound allow TCP 443 (IIS HTTPS)"
+      - "Inbound allow TCP 3389 (RDP)"
+      - "Outbound allow TCP 1433 (SQL Server)"
+
+  - name: RDPConfig
+    description: Configuration RDP (NLA, port, restrictions)
+    examples:
+      - "RDP: NLA enabled, port 3389"
+      - "RDP: allowed group Remote Desktop Users"
+
+  - name: WinRMConfig
+    description: Configuration WinRM/PowerShell Remoting
+    examples:
+      - "WinRM: HTTPS listener enabled"
+      - "WinRM: allow remote management"
+
+  - name: UpdateSource
+    description: Source de mises à jour (WSUS / Windows Update)
+    examples:
+      - "WSUS: wsus.corp.local"
+      - "Windows Update"
 
   - name: Environment
     description: Environnement (Prod/Préprod/Dev/DR...) ou contexte d'hébergement
@@ -121,11 +355,46 @@ entity_types:
 
   # --- Réseau / exposition ---
   - name: ServiceEndpoint
-    description: Endpoint exposé (VIP, FQDN, URL, host:port)
+    description: Endpoint applicatif exposé (URL/FQDN + port éventuellement)
+    priority: high
     examples:
-      - "vip-portail-prod (10.10.10.10:443)"
       - "https://portail.exemple.fr"
-      - "db-prod-vip (10.10.20.10:1433)"
+      - "api-prod.exemple.fr:8443"
+
+  - name: DNSRecord
+    description: Enregistrement DNS (FQDN)
+    priority: high
+    examples:
+      - "portail.exemple.fr"
+      - "facturation.exemple.fr"
+
+  - name: VLAN
+    description: VLAN (identifiant + nom si disponible)
+    examples:
+      - "VLAN 120 (PROD-APP)"
+      - "VLAN 140 (PROD-DB)"
+
+  - name: Subnet
+    description: Sous-réseau (CIDR) IPv4 ou IPv6
+    priority: high
+    examples:
+      - "Subnet PROD-APP (10.10.10.0/24)"
+      - "Subnet PROD-APP IPv6 (2001:db8:10:10::/64)"
+
+  - name: NetworkInterface
+    description: Interface réseau (NIC)
+    priority: high
+    examples:
+      - "eth0 (vm-app-prod-01)"
+      - "nic1 (haproxy-prod-01)"
+
+  - name: IPAddress
+    description: Adresse IP (IPv4 ou IPv6)
+    priority: high
+    examples:
+      - "10.10.10.10"
+      - "10.10.10.21"
+      - "2001:db8:10:10::10"
 
   # --- Load balancers ---
   - name: LoadBalancerProduct
@@ -236,6 +505,190 @@ relation_types:
     examples:
       - "vm-app-prod-01 → DEPLOYED_IN → Production (Prod)"
 
+  # --- CMDB++ (Compute & Storage) ---
+  - name: HAS_CPU
+    description: CI possède une ressource CPU
+    examples:
+      - "vm-db-prod-02 → HAS_CPU → CPU 16 vCPU"
+
+  - name: HAS_MEMORY
+    description: CI possède une ressource mémoire
+    examples:
+      - "vm-db-prod-02 → HAS_MEMORY → RAM 64 Go"
+
+  - name: HAS_DISK
+    description: CI possède un disque
+    examples:
+      - "vm-db-prod-02 → HAS_DISK → Disk sda (500 Go SSD)"
+
+  - name: HAS_VOLUME
+    description: Un disque contient un volume/partition
+    examples:
+      - "Disk sda (500 Go SSD) → HAS_VOLUME → Volume vg0-lv_data (200 Go)"
+
+  - name: FORMATTED_AS
+    description: Un volume est formaté en système de fichiers
+    examples:
+      - "Volume vg0-lv_data (200 Go) → FORMATTED_AS → ext4 (200 Go)"
+
+  - name: MOUNTED_AT
+    description: Un système de fichiers est monté sur un point de montage
+    examples:
+      - "ext4 (200 Go) → MOUNTED_AT → /var/lib/postgresql"
+
+  # --- CMDB++ (Linux OS baseline) ---
+  - name: HAS_OS_DISTRIBUTION
+    description: CI utilise une distribution Linux
+    examples:
+      - "vm-app-prod-01 → HAS_OS_DISTRIBUTION → RHEL"
+
+  - name: HAS_OS_VERSION
+    description: CI utilise une version de distribution Linux
+    examples:
+      - "vm-app-prod-01 → HAS_OS_VERSION → 9.2"
+
+  - name: HAS_KERNEL
+    description: CI utilise une version de kernel Linux
+    examples:
+      - "vm-app-prod-01 → HAS_KERNEL → 5.14.0-362.13.1.el9_3.x86_64"
+
+  - name: USES_REPOSITORY
+    description: CI a un dépôt de paquets configuré
+    examples:
+      - "vm-app-prod-01 → USES_REPOSITORY → repo: rhel-9-baseos-rpms"
+
+  - name: RUNS_SERVICE
+    description: CI exécute un service systemd actif/enabled
+    examples:
+      - "vm-app-prod-01 → RUNS_SERVICE → sshd (enabled, active)"
+
+  - name: HAS_SSH_CONFIG
+    description: CI possède une configuration SSH
+    examples:
+      - "vm-app-prod-01 → HAS_SSH_CONFIG → sshd_config: PermitRootLogin=no; PasswordAuthentication=no"
+
+  - name: HAS_LOCAL_USER
+    description: CI a un compte utilisateur local
+    examples:
+      - "vm-app-prod-01 → HAS_LOCAL_USER → user: admin"
+
+  - name: HAS_LOCAL_GROUP
+    description: CI a un groupe local
+    examples:
+      - "vm-app-prod-01 → HAS_LOCAL_GROUP → group: wheel"
+
+  - name: MEMBER_OF
+    description: Un utilisateur local est membre d'un groupe local
+    examples:
+      - "user: admin → MEMBER_OF → group: wheel"
+
+  - name: AUTHENTICATES_VIA
+    description: CI s'authentifie via un provider (local/LDAP/AD/etc.)
+    examples:
+      - "vm-app-prod-01 → AUTHENTICATES_VIA → LDAP"
+
+  - name: HAS_ROUTE
+    description: CI a une route réseau
+    examples:
+      - "vm-app-prod-01 → HAS_ROUTE → default via 10.10.10.1 dev eth0"
+
+  # --- CMDB++ (Windows baseline) ---
+  - name: HAS_WINDOWS_EDITION
+    description: CI utilise une édition Windows
+    examples:
+      - "vm-win-prod-01 → HAS_WINDOWS_EDITION → Windows Server"
+
+  - name: HAS_WINDOWS_VERSION
+    description: CI utilise une version Windows
+    examples:
+      - "vm-win-prod-01 → HAS_WINDOWS_VERSION → 2022"
+
+  - name: HAS_WINDOWS_BUILD
+    description: CI utilise un build Windows
+    examples:
+      - "vm-win-prod-01 → HAS_WINDOWS_BUILD → Build 20348.2402"
+
+  - name: JOINED_TO_DOMAIN
+    description: CI joint à un domaine Active Directory
+    examples:
+      - "vm-win-prod-01 → JOINED_TO_DOMAIN → corp.local"
+
+  - name: HAS_ROLE_FEATURE
+    description: CI possède un rôle/feature Windows
+    examples:
+      - "vm-win-prod-01 → HAS_ROLE_FEATURE → IIS (Web-Server)"
+
+  - name: RUNS_WINDOWS_SERVICE
+    description: CI exécute un service Windows
+    examples:
+      - "vm-win-prod-01 → RUNS_WINDOWS_SERVICE → W3SVC (World Wide Web Publishing Service)"
+
+  - name: HAS_SCHEDULED_TASK
+    description: CI a une tâche planifiée
+    examples:
+      - "vm-win-prod-01 → HAS_SCHEDULED_TASK → \\Company\\Backup\\NightlyBackup"
+
+  - name: HAS_WINDOWS_LOCAL_USER
+    description: CI a un utilisateur local Windows
+    examples:
+      - "vm-win-prod-01 → HAS_WINDOWS_LOCAL_USER → user: Administrator"
+
+  - name: HAS_WINDOWS_LOCAL_GROUP
+    description: CI a un groupe local Windows
+    examples:
+      - "vm-win-prod-01 → HAS_WINDOWS_LOCAL_GROUP → group: Administrators"
+
+  - name: MEMBER_OF_WINDOWS
+    description: Un utilisateur Windows est membre d'un groupe Windows
+    examples:
+      - "user: svc_backup → MEMBER_OF_WINDOWS → group: Administrators"
+
+  - name: HAS_FIREWALL_RULE
+    description: CI a une règle de firewall Windows
+    examples:
+      - "vm-win-prod-01 → HAS_FIREWALL_RULE → Inbound allow TCP 443 (IIS HTTPS)"
+
+  - name: HAS_RDP_CONFIG
+    description: CI a une configuration RDP
+    examples:
+      - "vm-win-prod-01 → HAS_RDP_CONFIG → RDP: NLA enabled, port 3389"
+
+  - name: HAS_WINRM_CONFIG
+    description: CI a une configuration WinRM
+    examples:
+      - "vm-win-prod-01 → HAS_WINRM_CONFIG → WinRM: HTTPS listener enabled"
+
+  - name: UPDATES_FROM
+    description: CI récupère ses mises à jour depuis
+    examples:
+      - "vm-win-prod-01 → UPDATES_FROM → WSUS: wsus.corp.local"
+
+  - name: OWNED_BY
+    description: CI appartenant à (ownership)
+    examples:
+      - "vm-app-prod-01 → OWNED_BY → DSI Client"
+      - "pg-billing-prod → OWNED_BY → Équipe DBA"
+
+  - name: HAS_ASSET_TAG
+    description: CI associé à un asset tag
+    examples:
+      - "vm-app-prod-01 → HAS_ASSET_TAG → CT-VM-000123"
+
+  - name: HAS_SERIAL
+    description: CI associé à un numéro de série
+    examples:
+      - "srv-bm-001 → HAS_SERIAL → SN: ABCD1234EFGH"
+
+  - name: HAS_STATE
+    description: CI associé à un état de cycle de vie
+    examples:
+      - "vm-app-prod-01 → HAS_STATE → Active"
+
+  - name: HAS_CRITICALITY
+    description: CI associé à une criticité
+    examples:
+      - "Portail Client → HAS_CRITICALITY → Criticalité High (P1)"
+
   - name: PART_OF
     description: Fait partie de (composition)
     examples:
@@ -254,10 +707,42 @@ relation_types:
       - "vm-app-prod-01 → HAS_OS → RHEL 9.2"
 
   - name: EXPOSES
-    description: Expose un endpoint
+    description: Expose un endpoint applicatif
     examples:
-      - "haproxy-prod-01 → EXPOSES → vip-portail-prod (10.10.10.10:443)"
+      - "haproxy-prod-01 → EXPOSES → https://portail.exemple.fr:443"
       - "Portail Client → EXPOSES → https://portail.exemple.fr"
+
+  - name: USES_DNS
+    description: Un endpoint applicatif utilise un DNS
+    examples:
+      - "https://portail.exemple.fr → USES_DNS → portail.exemple.fr"
+
+  - name: RESOLVES_TO
+    description: Un DNS résout vers une IP
+    examples:
+      - "portail.exemple.fr → RESOLVES_TO → 10.10.10.10"
+
+  - name: HAS_INTERFACE
+    description: Un CI possède une interface réseau
+    examples:
+      - "vm-app-prod-01 → HAS_INTERFACE → eth0 (vm-app-prod-01)"
+      - "haproxy-prod-01 → HAS_INTERFACE → nic1 (haproxy-prod-01)"
+
+  - name: HAS_IP
+    description: Une interface réseau possède une IP
+    examples:
+      - "eth0 (vm-app-prod-01) → HAS_IP → 10.10.10.21"
+      - "eth0 (vm-app-prod-01) → HAS_IP → 2001:db8:10:10::21"
+
+  - name: IN_SUBNET
+    description: Une IP appartient à un subnet
+    examples:
+      - "10.10.10.21 → IN_SUBNET → Subnet PROD-APP (10.10.10.0/24)"
+
+  - name: IN_VLAN
+    description: Un subnet est dans un VLAN
+    examples:
+      - "Subnet PROD-APP (10.10.10.0/24) → IN_VLAN → VLAN 120 (PROD-APP)"
 
   - name: LOAD_BALANCES
     description: Load-balance vers (cibles derrière LB)
@@ -280,7 +765,7 @@ relation_types:
   - name: CONNECTS_TO
     description: Se connecte à (dépendance réseau ou applicative)
     examples:
-      - "billing-api → CONNECTS_TO → vip-portail-prod (10.10.10.10:443)"
+      - "billing-api → CONNECTS_TO → api-prod.exemple.fr:8443"
 
   - name: REPLICATED_TO
     description: Répliqué vers (DR, replica, secondaire)
@@ -333,8 +818,8 @@ relation_types:
 # Règles d'extraction
 # =============================================================================
 extraction_rules:
-  max_entities: 60
-  max_relations: 80
+  max_entities: 100
+  max_relations: 150
   include_metrics: true
   include_durations: true
   include_amounts: false
@@ -345,6 +830,28 @@ extraction_rules:
     - BusinessService
     - Application
     - VirtualMachine
+    - AssetTag
+    - LifecycleState
+    - Criticality
+    - OSDistribution
+    - OSVersion
+    - CPU
+    - Memory
+    - Disk
+    - MountPoint
+    - SystemdService
+    - AuthProvider
+    - WindowsEdition
+    - WindowsVersion
+    - Domain
+    - WindowsService
+    - WindowsRoleFeature
+    - NetworkInterface
+    - IPAddress
+    - Subnet
+    - VLAN
+    - DNSRecord
+    - ServiceEndpoint
     - DatabaseEngine
     - DatabaseInstance
     - MiddlewareProduct
@@ -354,19 +861,99 @@ extraction_rules:
 
   special_instructions: |
     # --- INVENTAIRES / TABLEAUX ---
-    - Si le document contient un inventaire (tableau, liste structurée), 1 ligne = 1 CI.
-      Crée une entité CI (VirtualMachine, DatabaseInstance, MiddlewareInstance, LoadBalancerInstance)
+    - Si le document contient un inventaire (tableau, liste structurée), 1 ligne = 1 CI PRINCIPAL
+      (VirtualMachine, PhysicalServer, DatabaseInstance, MiddlewareInstance, LoadBalancerInstance)
       avec un nom auto-suffisant (inclure env + rôle + version si disponible).
-      Ne crée PAS une entité par cellule.
+    - Pour chaque CI principal, si le réseau est indiqué, extrais aussi :
+      * NetworkInterface (ex: "eth0 (vm-app-prod-01)")
+      * IPAddress IPv4/IPv6
+      * Subnet (CIDR)
+      * VLAN (si présent)
+      * DNSRecord (si un FQDN est donné)
+      et relie le tout via HAS_INTERFACE / HAS_IP / IN_SUBNET / IN_VLAN / RESOLVES_TO.
+    - Ne crée PAS une entité par cellule isolée sans lien (ex: "443" seul).
 
     # --- NOMMAGE (QUALITÉ) ---
     - Les noms doivent être explicites : hostname/instance + techno + version + env si possible.
       ✅ "sqlsrv-erp-prod (SQL Server 2019, Prod)"
       ❌ "SQL Server" seul, ❌ "2019" seul.
 
-    # --- ENDPOINTS ---
-    - Les IP/ports/VIP/FQDN/URL doivent être des ServiceEndpoint.
-      Ne crée JAMAIS de type "IP", "Port", "URL" ou "Hostname" séparé.
+    # --- RÉSEAU CMDB (IP / SUBNET / VLAN / DNS) ---
+    - Les adresses IP (IPv4 et IPv6) sont des entités IPAddress.
+      Elles doivent être reliées à une NetworkInterface via HAS_IP.
+      Ne crée PAS d'IPAddress si elle n'est pas rattachée à une interface.
+
+    - Les subnets (CIDR) sont des entités Subnet et doivent être liés aux IP via IN_SUBNET.
+    - Les VLAN sont des entités VLAN et doivent être liés aux subnets via IN_VLAN.
+    - Les FQDN sont des entités DNSRecord et doivent être liés aux IP via RESOLVES_TO.
+
+    # --- ENDPOINTS APPLICATIFS ---
+    - ServiceEndpoint est réservé aux endpoints APPLICATIFS (URL/FQDN + port éventuel).
+      Si tu vois un FQDN dans une URL, crée aussi un DNSRecord correspondant et relie via USES_DNS.
+      Exemple: "https://portail.exemple.fr:443" (ServiceEndpoint)
+               "portail.exemple.fr" (DNSRecord)
+               ServiceEndpoint → USES_DNS → DNSRecord
+
+    - Ne crée JAMAIS d'entité "Port" isolée.
+
+    # --- CMDB++ (ASSET & LIFECYCLE) ---
+    - Extrais les AssetTag (tags CMDB) uniquement s'ils sont associés à un CI identifié
+      et crée la relation HAS_ASSET_TAG.
+    - Extrais les numéros de série uniquement s'ils sont associés à un serveur/CI
+      et crée la relation HAS_SERIAL.
+    - Extrais l'état de cycle de vie (LifecycleState) quand il est mentionné.
+      Normalise les libellés :
+      * "en production", "actif" → Active
+      * "prévu", "à déployer" → Planned
+      * "en maintenance" → Maintenance
+      * "retiré", "décommissionné" → Retired
+      et lie via HAS_STATE.
+    - Extrais la criticité si elle est donnée (P1/P2/P3, high/medium/low, critique)
+      et lie via HAS_CRITICALITY.
+    - L'owner doit être une Organization ou une Team existante (pas une entité Owner dédiée)
+      et doit être lié au CI via OWNED_BY.
+
+    # --- CMDB++ (LINUX OS BASELINE) ---
+    - Extrais la distribution Linux (OSDistribution) et la version (OSVersion) quand elles sont présentes.
+      Exemple: "Red Hat Enterprise Linux 9.2" → OSDistribution="RHEL", OSVersion="9.2".
+    - Extrais la version kernel (KernelVersion) si elle est explicitement mentionnée.
+    - Extrais les dépôts de paquets configurés (PackageRepository) si listés.
+    - Extrais les services systemd ACTIFS/ENABLED uniquement (SystemdService).
+      N'extrais pas une liste exhaustive de tous les paquets installés.
+    - Extrais la configuration SSH/SSHD (SSHConfig) UNIQUEMENT pour les directives importantes :
+      PermitRootLogin, PasswordAuthentication, PubkeyAuthentication, AllowUsers, AllowGroups, Port.
+    - Extrais l'authentification (AuthProvider) si la machine est jointe/branchée à LDAP/FreeIPA/AD/Kerberos.
+    - Extrais les routes (Route) si elles sont mentionnées (default gateway, routes statiques).
+
+    # --- CMDB++ (USERS/GROUPS) ---
+    - Extrais les utilisateurs/groupes locaux seulement s'ils sont pertinents (admin, wheel, sshadmins,
+      comptes de service svc_*, postgres, oracle, nginx, backup).
+      Si le document contient un dump complet /etc/passwd ou /etc/group, ne pas tout extraire.
+      Concentre-toi sur 5 à 15 comptes/groupes maximum.
+    - Crée les liens MEMBER_OF quand l'appartenance est donnée.
+
+    # --- CMDB++ (COMPUTE & STORAGE) ---
+    - Extrais CPU et RAM avec unités et contexte (CPU 16 vCPU, RAM 64 Go). Ne crée pas des nombres isolés.
+    - Pour le stockage : privilégie la chaîne Disk → Volume → FileSystem → MountPoint.
+      Si une source ne distingue pas Disk/Volume, tu peux relier Volume directement au CI.
+      Ne crée pas de MountPoint isolé sans FileSystem associé.
+
+    # --- CMDB++ (WINDOWS OS BASELINE - OPS APPLICATIVES) ---
+    - Si le CI est Windows, extrais WindowsEdition/WindowsVersion/WindowsBuild quand présents.
+      Exemple: "Windows Server 2022 Datacenter (Build 20348.2402)".
+    - AD quasi systématique : extrais le Domain (corp.local) et lie via JOINED_TO_DOMAIN.
+    - Extrais les rôles/features Windows cités (IIS, .NET, Failover Clustering, Defender, etc.)
+      et lie via HAS_ROLE_FEATURE.
+    - Extrais uniquement les services Windows significatifs (Running/Automatic) et lie via RUNS_WINDOWS_SERVICE.
+      N'extrais pas une liste exhaustive de tous les services.
+    - Extrais les tâches planifiées utiles (backup, scan, maintenance, tâches custom entreprise)
+      et lie via HAS_SCHEDULED_TASK.
+    - Extrais les règles firewall Windows explicitement listées (in/out, proto, port intégré dans le nom)
+      et lie via HAS_FIREWALL_RULE. Ne crée JAMAIS une entité Port isolée.
+    - Extrais la config RDP/WinRM si mentionnée (NLA, port, groupe autorisé, listener HTTPS) et lie via HAS_RDP_CONFIG / HAS_WINRM_CONFIG.
+    - Extrais la source de updates (WSUS/Windows Update) et lie via UPDATES_FROM.
+    - Extrais les users/groups locaux Windows seulement si pertinents (Administrator, comptes svc_*)
+      et lie via HAS_WINDOWS_LOCAL_USER / HAS_WINDOWS_LOCAL_GROUP / MEMBER_OF_WINDOWS.
 
     # --- MAPPINGS OBLIGATOIRES (anti-"Other") ---
     - PostgreSQL, Microsoft SQL Server, Oracle, MariaDB, MySQL, MongoDB → DatabaseEngine.
@@ -398,8 +985,10 @@ examples:
       Environnement : Production.
       VM : vm-app-prod-01 (RHEL 9.2) héberge tomcat-portail-prod-01 (Tomcat 10).
       VM : vm-db-prod-02 (Windows Server 2022) héberge sqlsrv-erp-prod (SQL Server 2019).
-      Le portail client (portail-web) est exposé via vip-portail-prod (10.10.10.10:443)
-      sur aloha-prod-02 (Aloha). Le portail utilise la base sqlsrv-erp-prod.
+      Le portail client (portail-web) est exposé via https://portail.exemple.fr:443.
+      Le DNS portail.exemple.fr résout vers 10.10.10.10 dans le subnet 10.10.10.0/24 (VLAN 120 PROD-APP).
+      Le load balancer aloha-prod-02 (Aloha) possède l'interface nic0 avec l'IP 10.10.10.10.
+      Le portail utilise la base sqlsrv-erp-prod.
       Supervision : Centreon. Sauvegarde : Backup quotidien (rétention 30j, RPO 24h).
     expected_entities:
       - {name: "Production (Prod)", type: "Environment"}
@@ -413,7 +1002,12 @@ examples:
       - {name: "Microsoft SQL Server", type: "DatabaseEngine"}
       - {name: "aloha-prod-02 (Aloha, Prod)", type: "LoadBalancerInstance"}
       - {name: "Aloha (HAProxy commercial)", type: "LoadBalancerProduct"}
-      - {name: "vip-portail-prod (10.10.10.10:443)", type: "ServiceEndpoint"}
+      - {name: "https://portail.exemple.fr:443", type: "ServiceEndpoint"}
+      - {name: "portail.exemple.fr", type: "DNSRecord"}
+      - {name: "10.10.10.10", type: "IPAddress"}
+      - {name: "Subnet PROD-APP (10.10.10.0/24)", type: "Subnet"}
+      - {name: "VLAN 120 (PROD-APP)", type: "VLAN"}
+      - {name: "nic0 (aloha-prod-02)", type: "NetworkInterface"}
       - {name: "Centreon", type: "MonitoringTool"}
       - {name: "Backup quotidien (rétention 30j, RPO 24h)", type: "BackupPolicy"}
     expected_relations:
@@ -422,7 +1016,13 @@ examples:
       - {from: "tomcat-portail-prod-01", to: "vm-app-prod-01", type: "RUNS_ON"}
       - {from: "vm-db-prod-02", to: "Windows Server 2022", type: "HAS_OS"}
       - {from: "sqlsrv-erp-prod", to: "vm-db-prod-02", type: "RUNS_ON"}
-      - {from: "aloha-prod-02", to: "vip-portail-prod (10.10.10.10:443)", type: "EXPOSES"}
+      - {from: "aloha-prod-02", to: "https://portail.exemple.fr:443", type: "EXPOSES"}
+      - {from: "https://portail.exemple.fr:443", to: "portail.exemple.fr", type: "USES_DNS"}
+      - {from: "portail.exemple.fr", to: "10.10.10.10", type: "RESOLVES_TO"}
+      - {from: "aloha-prod-02", to: "nic0 (aloha-prod-02)", type: "HAS_INTERFACE"}
+      - {from: "nic0 (aloha-prod-02)", to: "10.10.10.10", type: "HAS_IP"}
+      - {from: "10.10.10.10", to: "Subnet PROD-APP (10.10.10.0/24)", type: "IN_SUBNET"}
+      - {from: "Subnet PROD-APP (10.10.10.0/24)", to: "VLAN 120 (PROD-APP)", type: "IN_VLAN"}
       - {from: "aloha-prod-02", to: "tomcat-portail-prod-01", type: "LOAD_BALANCES"}
       - {from: "tomcat-portail-prod-01", to: "sqlsrv-erp-prod", type: "USES_DATABASE"}
       - {from: "sqlsrv-erp-prod", to: "Backup quotidien (rétention 30j, RPO 24h)", type: "BACKED_UP_BY"}
@@ -443,6 +1043,7 @@ examples:
       - {name: "haproxy-prod-01 (HAProxy 2.6, Prod)", type: "LoadBalancerInstance"}
       - {name: "HAProxy", type: "LoadBalancerProduct"}
       - {name: "https://facturation.exemple.fr", type: "ServiceEndpoint"}
+      - {name: "facturation.exemple.fr", type: "DNSRecord"}
       - {name: "pg-billing-prod (PostgreSQL 15, Prod)", type: "DatabaseInstance"}
       - {name: "PostgreSQL", type: "DatabaseEngine"}
       - {name: "pg-billing-dr (PostgreSQL 15, DR)", type: "DatabaseInstance"}
@@ -453,9 +1054,171 @@ examples:
       - {from: "billing-api", to: "Service Facturation", type: "PART_OF"}
       - {from: "billing-api", to: "vm-app-prod-01", type: "RUNS_ON"}
       - {from: "haproxy-prod-01", to: "https://facturation.exemple.fr", type: "EXPOSES"}
+      - {from: "https://facturation.exemple.fr", to: "facturation.exemple.fr", type: "USES_DNS"}
       - {from: "haproxy-prod-01", to: "billing-api", type: "LOAD_BALANCES"}
       - {from: "billing-api", to: "pg-billing-prod", type: "USES_DATABASE"}
       - {from: "pg-billing-prod", to: "pg-billing-dr", type: "REPLICATED_TO"}
       - {from: "Service Facturation", to: "Disponibilité 99.9%", type: "HAS_SLA"}
       - {from: "Service Facturation", to: "GTI 15 minutes", type: "HAS_SLA"}
       - {from: "pg-billing-prod", to: "Procédure de bascule PostgreSQL (streaming replication)", type: "DOCUMENTED_BY"}
+
+  - context: "Inventaire CMDB (Asset & Lifecycle)"
+    input: |
+      CI: vm-app-prod-01
+      Asset tag: CT-VM-000123
+      Owner: DSI Client
+      State: Actif (en production)
+      Criticalité: P1
+
+      CI: srv-bm-001
+      Serial: SN: ABCD1234EFGH
+      State: Maintenance
+      Owner: Équipe MCO
+      Criticalité: P2
+    expected_entities:
+      - {name: "vm-app-prod-01 (Prod)", type: "VirtualMachine"}
+      - {name: "CT-VM-000123", type: "AssetTag"}
+      - {name: "DSI Client", type: "Organization"}
+      - {name: "Active", type: "LifecycleState"}
+      - {name: "Criticalité High (P1)", type: "Criticality"}
+      - {name: "srv-bm-001 (Dell R740, Prod)", type: "PhysicalServer"}
+      - {name: "SN: ABCD1234EFGH", type: "SerialNumber"}
+      - {name: "Maintenance", type: "LifecycleState"}
+      - {name: "Équipe MCO", type: "Team"}
+      - {name: "Criticalité Medium (P2)", type: "Criticality"}
+    expected_relations:
+      - {from: "vm-app-prod-01", to: "CT-VM-000123", type: "HAS_ASSET_TAG"}
+      - {from: "vm-app-prod-01", to: "DSI Client", type: "OWNED_BY"}
+      - {from: "vm-app-prod-01", to: "Active", type: "HAS_STATE"}
+      - {from: "vm-app-prod-01", to: "Criticalité High (P1)", type: "HAS_CRITICALITY"}
+      - {from: "srv-bm-001", to: "SN: ABCD1234EFGH", type: "HAS_SERIAL"}
+      - {from: "srv-bm-001", to: "Maintenance", type: "HAS_STATE"}
+      - {from: "srv-bm-001", to: "Équipe MCO", type: "OWNED_BY"}
+      - {from: "srv-bm-001", to: "Criticalité Medium (P2)", type: "HAS_CRITICALITY"}
+
+  - context: "Linux host baseline + compute/storage (exemple complet)"
+    input: |
+      CI: vm-db-prod-02
+      OS: Red Hat Enterprise Linux 9.2
+      Kernel: 5.14.0-362.13.1.el9_3.x86_64
+      CPU: 16 vCPU
+      RAM: 64 Go
+      Disks: sda 500Go SSD
+      LVM: vg0-lv_data 200Go
+      FS: ext4 200Go mounted on /var/lib/postgresql
+      SSH: PermitRootLogin no; PasswordAuthentication no; AllowGroups sshadmins
+      Repos: rhel-9-baseos-rpms, rhel-9-appstream-rpms
+      Services (enabled, active): sshd, chronyd, firewalld
+      Auth: LDAP
+      Users: admin, postgres, svc_backup
+      Groups: wheel, sshadmins
+      Membership: admin in wheel and sshadmins
+      Routes: default via 10.10.10.1 dev eth0
+    expected_entities:
+      - {name: "vm-db-prod-02 (Prod)", type: "VirtualMachine"}
+      - {name: "RHEL", type: "OSDistribution"}
+      - {name: "9.2", type: "OSVersion"}
+      - {name: "5.14.0-362.13.1.el9_3.x86_64", type: "KernelVersion"}
+      - {name: "CPU 16 vCPU", type: "CPU"}
+      - {name: "RAM 64 Go", type: "Memory"}
+      - {name: "Disk sda (500 Go SSD)", type: "Disk"}
+      - {name: "Volume vg0-lv_data (200 Go)", type: "Volume"}
+      - {name: "ext4 (200 Go)", type: "FileSystem"}
+      - {name: "/var/lib/postgresql", type: "MountPoint"}
+      - {name: "sshd_config: PermitRootLogin=no; PasswordAuthentication=no; AllowGroups=sshadmins", type: "SSHConfig"}
+      - {name: "repo: rhel-9-baseos-rpms", type: "PackageRepository"}
+      - {name: "repo: rhel-9-appstream-rpms", type: "PackageRepository"}
+      - {name: "sshd (enabled, active)", type: "SystemdService"}
+      - {name: "chronyd (enabled, active)", type: "SystemdService"}
+      - {name: "firewalld (enabled, active)", type: "SystemdService"}
+      - {name: "LDAP", type: "AuthProvider"}
+      - {name: "user: admin", type: "LocalUser"}
+      - {name: "user: postgres", type: "LocalUser"}
+      - {name: "user: svc_backup", type: "LocalUser"}
+      - {name: "group: wheel", type: "LocalGroup"}
+      - {name: "group: sshadmins", type: "LocalGroup"}
+      - {name: "default via 10.10.10.1 dev eth0", type: "Route"}
+    expected_relations:
+      - {from: "vm-db-prod-02", to: "RHEL", type: "HAS_OS_DISTRIBUTION"}
+      - {from: "vm-db-prod-02", to: "9.2", type: "HAS_OS_VERSION"}
+      - {from: "vm-db-prod-02", to: "5.14.0-362.13.1.el9_3.x86_64", type: "HAS_KERNEL"}
+      - {from: "vm-db-prod-02", to: "CPU 16 vCPU", type: "HAS_CPU"}
+      - {from: "vm-db-prod-02", to: "RAM 64 Go", type: "HAS_MEMORY"}
+      - {from: "vm-db-prod-02", to: "Disk sda (500 Go SSD)", type: "HAS_DISK"}
+      - {from: "Disk sda (500 Go SSD)", to: "Volume vg0-lv_data (200 Go)", type: "HAS_VOLUME"}
+      - {from: "Volume vg0-lv_data (200 Go)", to: "ext4 (200 Go)", type: "FORMATTED_AS"}
+      - {from: "ext4 (200 Go)", to: "/var/lib/postgresql", type: "MOUNTED_AT"}
+      - {from: "vm-db-prod-02", to: "sshd_config: PermitRootLogin=no; PasswordAuthentication=no; AllowGroups=sshadmins", type: "HAS_SSH_CONFIG"}
+      - {from: "vm-db-prod-02", to: "repo: rhel-9-baseos-rpms", type: "USES_REPOSITORY"}
+      - {from: "vm-db-prod-02", to: "repo: rhel-9-appstream-rpms", type: "USES_REPOSITORY"}
+      - {from: "vm-db-prod-02", to: "sshd (enabled, active)", type: "RUNS_SERVICE"}
+      - {from: "vm-db-prod-02", to: "chronyd (enabled, active)", type: "RUNS_SERVICE"}
+      - {from: "vm-db-prod-02", to: "firewalld (enabled, active)", type: "RUNS_SERVICE"}
+      - {from: "vm-db-prod-02", to: "LDAP", type: "AUTHENTICATES_VIA"}
+      - {from: "vm-db-prod-02", to: "user: admin", type: "HAS_LOCAL_USER"}
+      - {from: "vm-db-prod-02", to: "user: postgres", type: "HAS_LOCAL_USER"}
+      - {from: "vm-db-prod-02", to: "user: svc_backup", type: "HAS_LOCAL_USER"}
+      - {from: "vm-db-prod-02", to: "group: wheel", type: "HAS_LOCAL_GROUP"}
+      - {from: "vm-db-prod-02", to: "group: sshadmins", type: "HAS_LOCAL_GROUP"}
+      - {from: "user: admin", to: "group: wheel", type: "MEMBER_OF"}
+      - {from: "user: admin", to: "group: sshadmins", type: "MEMBER_OF"}
+      - {from: "vm-db-prod-02", to: "default via 10.10.10.1 dev eth0", type: "HAS_ROUTE"}
+
+  - context: "Windows host baseline + ops applicatives (exemple complet)"
+    input: |
+      CI: vm-win-prod-01
+      OS: Windows Server 2022 Datacenter
+      Build: 20348.2402
+      Domain: corp.local
+      Roles/Features: IIS (Web-Server), .NET Framework 4.8
+      Services (running/auto): W3SVC, W32Time
+      Scheduled Tasks: \\Company\\Backup\\NightlyBackup, \\Microsoft\\Windows\\Defender\\Windows Defender Scheduled Scan
+      Firewall rules: Inbound allow TCP 443 (IIS HTTPS), Inbound allow TCP 3389 (RDP)
+      RDP: NLA enabled, port 3389, allowed group Remote Desktop Users
+      WinRM: HTTPS listener enabled
+      Updates: WSUS wsus.corp.local
+      Local users: Administrator, svc_backup
+      Local groups: Administrators, Remote Desktop Users
+      Membership: svc_backup in Administrators
+    expected_entities:
+      - {name: "vm-win-prod-01 (Prod)", type: "VirtualMachine"}
+      - {name: "Windows Server Datacenter", type: "WindowsEdition"}
+      - {name: "2022", type: "WindowsVersion"}
+      - {name: "Build 20348.2402", type: "WindowsBuild"}
+      - {name: "corp.local", type: "Domain"}
+      - {name: "IIS (Web-Server)", type: "WindowsRoleFeature"}
+      - {name: ".NET Framework 4.8", type: "WindowsRoleFeature"}
+      - {name: "W3SVC (World Wide Web Publishing Service)", type: "WindowsService"}
+      - {name: "W32Time (Windows Time)", type: "WindowsService"}
+      - {name: "\\Company\\Backup\\NightlyBackup", type: "ScheduledTask"}
+      - {name: "\\Microsoft\\Windows\\Defender\\Windows Defender Scheduled Scan", type: "ScheduledTask"}
+      - {name: "Inbound allow TCP 443 (IIS HTTPS)", type: "WindowsFirewallRule"}
+      - {name: "Inbound allow TCP 3389 (RDP)", type: "WindowsFirewallRule"}
+      - {name: "RDP: NLA enabled, port 3389; allowed group Remote Desktop Users", type: "RDPConfig"}
+      - {name: "WinRM: HTTPS listener enabled", type: "WinRMConfig"}
+      - {name: "WSUS: wsus.corp.local", type: "UpdateSource"}
+      - {name: "user: Administrator", type: "WindowsLocalUser"}
+      - {name: "user: svc_backup", type: "WindowsLocalUser"}
+      - {name: "group: Administrators", type: "WindowsLocalGroup"}
+      - {name: "group: Remote Desktop Users", type: "WindowsLocalGroup"}
+    expected_relations:
+      - {from: "vm-win-prod-01", to: "Windows Server Datacenter", type: "HAS_WINDOWS_EDITION"}
+      - {from: "vm-win-prod-01", to: "2022", type: "HAS_WINDOWS_VERSION"}
+      - {from: "vm-win-prod-01", to: "Build 20348.2402", type: "HAS_WINDOWS_BUILD"}
+      - {from: "vm-win-prod-01", to: "corp.local", type: "JOINED_TO_DOMAIN"}
+      - {from: "vm-win-prod-01", to: "IIS (Web-Server)", type: "HAS_ROLE_FEATURE"}
+      - {from: "vm-win-prod-01", to: ".NET Framework 4.8", type: "HAS_ROLE_FEATURE"}
+      - {from: "vm-win-prod-01", to: "W3SVC (World Wide Web Publishing Service)", type: "RUNS_WINDOWS_SERVICE"}
+      - {from: "vm-win-prod-01", to: "W32Time (Windows Time)", type: "RUNS_WINDOWS_SERVICE"}
+      - {from: "vm-win-prod-01", to: "\\Company\\Backup\\NightlyBackup", type: "HAS_SCHEDULED_TASK"}
+      - {from: "vm-win-prod-01", to: "\\Microsoft\\Windows\\Defender\\Windows Defender Scheduled Scan", type: "HAS_SCHEDULED_TASK"}
+      - {from: "vm-win-prod-01", to: "Inbound allow TCP 443 (IIS HTTPS)", type: "HAS_FIREWALL_RULE"}
+      - {from: "vm-win-prod-01", to: "Inbound allow TCP 3389 (RDP)", type: "HAS_FIREWALL_RULE"}
+      - {from: "vm-win-prod-01", to: "RDP: NLA enabled, port 3389; allowed group Remote Desktop Users", type: "HAS_RDP_CONFIG"}
+      - {from: "vm-win-prod-01", to: "WinRM: HTTPS listener enabled", type: "HAS_WINRM_CONFIG"}
+      - {from: "vm-win-prod-01", to: "WSUS: wsus.corp.local", type: "UPDATES_FROM"}
+      - {from: "vm-win-prod-01", to: "user: Administrator", type: "HAS_WINDOWS_LOCAL_USER"}
+      - {from: "vm-win-prod-01", to: "user: svc_backup", type: "HAS_WINDOWS_LOCAL_USER"}
+      - {from: "vm-win-prod-01", to: "group: Administrators", type: "HAS_WINDOWS_LOCAL_GROUP"}
+      - {from: "vm-win-prod-01", to: "group: Remote Desktop Users", type: "HAS_WINDOWS_LOCAL_GROUP"}
+      - {from: "user: svc_backup", to: "group: Administrators", type: "MEMBER_OF_WINDOWS"}
