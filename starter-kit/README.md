@@ -500,7 +500,7 @@ boilerplate/
 │   ├── config.py            # pydantic-settings
 │   └── auth/
 │       ├── __init__.py
-│       ├── middleware.py     # Auth + Logging + HostNormalizer ASGI
+│       ├── middleware.py     # Auth + Logging ASGI
 │       └── context.py       # check_access, check_write_permission (contextvars)
 ├── scripts/
 │   ├── mcp_cli.py           # Point d'entrée CLI
