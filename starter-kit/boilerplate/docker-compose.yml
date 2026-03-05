@@ -51,9 +51,11 @@ services:
     networks:
       - mcp-net
     healthcheck:
-      test: ["CMD", "python", "-c", "import httpx; r=httpx.get('http://localhost:8002/health'); assert r.status_code==200"]
+      # curl est léger (~0 RAM) vs python -c (~50MB par fork)
+      test: ["CMD-SHELL", "curl -sf http://localhost:8002/health -o /dev/null 2>/dev/null"]
       interval: 30s
-      timeout: 5s
+      timeout: 10s
+      start_period: 10s
       retries: 3
 
   # ─────────────────────────────────────────────────────────────
