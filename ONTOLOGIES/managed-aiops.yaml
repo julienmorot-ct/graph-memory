@@ -15,6 +15,15 @@ description: |
   (Tomcat/JBoss/Redis), load balancers (HAProxy/Aloha) ainsi que leurs
   dépendances et pratiques d'exploitation (monitoring/backup/patch/runbooks).
 
+  Extension audit (option 2) : ajout d'une couche conformité/audit
+  (AuditRun/Baseline/Control/Finding/Exception/RemediationAction/Evidence)
+  + quelques entités de configuration observée nécessaires pour justifier les constats.
+
+  Pack audits : extensions complémentaires pour stocker des audits système
+  Linux/Windows de façon exploitable dans le temps (drift/historisation),
+  certificats TLS, exécution des sauvegardes (jobs/runs/tests) et
+  pipeline journaux/SIEM.
+
 # Instructions spécifiques pour le LLM
 context: |
   Tu es un expert exploitation / infogérance (CMDB, AIOps, RUN).
@@ -32,6 +41,21 @@ context: |
   - Les IP/Subnet/VLAN/DNS sont des entités (CMDB réseau), MAIS elles doivent être
     reliées à des CI via des relations (HAS_INTERFACE/HAS_IP/IN_SUBNET/IN_VLAN/etc.).
   - Ne crée JAMAIS une entité "Port" isolée.
+
+  # AUDIT / CONFORMITÉ (option 2)
+  - Si le document est un rapport d'audit (CIS/ANSSI/STIG/Lynis/GPO baseline), crée un AuditRun unique
+    (inclure date et outil/collector si disponibles) et relie-le aux CI concernés.
+  - Une baseline de conformité = Baseline (avec version si possible).
+  - Chaque contrôle explicite = Control (inclure l'ID et le titre).
+  - Chaque résultat = Finding, et DOIT inclure : PASS/FAIL/NA + sévérité + (expected/found si présents).
+  - Toute sortie de commande, export, extrait de configuration, capture, log, rapport = Evidence.
+    Lie Finding/Exception/RemediationAction → PROVEN_BY → Evidence.
+
+  # PACK AUDITS (drift / certificats / backups / logs)
+  - Si un document compare deux audits ("depuis le précédent audit", "diff", "regression"), crée un lien entre les AuditRun.
+  - Les certificats TLS sont des entités Certificate (inclure CN/SAN + dates dans le nom si disponibles).
+  - Les sauvegardes doivent être stockées comme Job + Run (dernier succès/échec) + RestoreTest si mentionné.
+  - La collecte de logs/SIEM : extraire policy (rétention) + forwarders + SIEM cible.
 
 # =============================================================================
 # Types d'entités (CI/CMDB)
@@ -496,6 +520,183 @@ entity_types:
       - "Alerte CPU > 90% (5 min)"
       - "Alerte espace disque < 10%"
 
+  # --- Audit & Conformité (option 2) ---
+  - name: AuditRun
+    description: Exécution d'audit (horodatée) sur un périmètre (CI/ensemble de CI)
+    priority: high
+    examples:
+      - "AuditRun 2026-03-06 (scope=vm-db-prod-02, collector=Lynis)"
+      - "AuditRun 2026-03-06 (scope=Windows fleet Prod, collector=Security Baseline)"
+
+  - name: Baseline
+    description: Baseline de conformité (CIS/STIG/ANSSI) avec version
+    priority: high
+    examples:
+      - "CIS RHEL 9 v1.0.0"
+      - "CIS Windows Server 2022 v2.0.0"
+      - "ANSSI Linux durcissement vX"
+
+  - name: Control
+    description: Contrôle de baseline (ID + intitulé)
+    priority: high
+    examples:
+      - "CIS 5.2.8 — SSH PermitRootLogin"
+      - "CIS 9.1.1 — Firewall enabled"
+      - "MSFT — Audit Logon events enabled"
+
+  - name: Finding
+    description: Résultat de contrôle (PASS/FAIL/NA) avec sévérité et contexte
+    priority: high
+    examples:
+      - "FAIL High — CIS 5.2.8 SSH PermitRootLogin (expected=no, found=yes)"
+      - "PASS Medium — CIS 9.1.1 Firewall enabled"
+      - "NA Low — CIS 1.1.1 Unused FS (not applicable)"
+
+  - name: Exception
+    description: Dérogation/exception documentée (durée/expiration/ticket si présent)
+    examples:
+      - "Exception approved — Legacy app requires SMB signing disabled (expires 2026-12-31)"
+      - "Exception — Vendor constraint (ticket SEC-1234)"
+
+  - name: RemediationAction
+    description: Action de remédiation (planned/done) avec fenêtre de change si présente
+    examples:
+      - "Remediation Planned — set PermitRootLogin=no (change window Sun 02:00-04:00)"
+      - "Remediation Done — enable Windows Firewall profile Domain"
+
+  - name: Evidence
+    description: Preuve (extrait de conf, export, sortie de commande, capture), idéalement horodatée
+    examples:
+      - "Evidence — /etc/ssh/sshd_config excerpt (sha256=...)"
+      - "Evidence — Get-NetFirewallRule export (2026-03-06)"
+      - "Evidence — ss -tulpn output (2026-03-06)"
+
+  # --- Configuration observée (compléments audit) ---
+  - name: DNSConfig
+    description: Configuration DNS effective (serveurs, search domains)
+    examples:
+      - "DNS: 10.0.0.53,10.0.0.54; search corp.local"
+
+  - name: NTPConfig
+    description: Configuration NTP/temps (service, source, état sync)
+    examples:
+      - "NTP: chrony -> ntp1.corp.local (synced)"
+      - "NTP: w32time -> time.windows.com (unsynced)"
+
+  - name: ListeningSocket
+    description: Socket à l'écoute (proto+port dans le nom ; pas de Port isolé)
+    examples:
+      - "LISTEN TCP 443 (nginx)"
+      - "LISTEN TCP 3389 (TermService)"
+      - "LISTEN UDP 53 (named)"
+
+  - name: LinuxFirewallRule
+    description: Règle firewall Linux (nftables/iptables/ufw/firewalld) — port intégré dans le nom
+    examples:
+      - "nft allow TCP 22 from 10.0.0.0/8"
+      - "ufw allow 443/tcp"
+      - "firewalld allow service ssh"
+
+  - name: SecurityAgent
+    description: Agent de sécurité (AV/EDR) + état
+    examples:
+      - "Defender: RTP=On; signatures up-to-date"
+      - "CrowdStrike sensor: OK"
+
+  - name: MACPolicy
+    description: Politique MAC (SELinux/AppArmor) + état
+    examples:
+      - "SELinux Enforcing"
+      - "SELinux Permissive"
+      - "AppArmor enabled"
+
+  - name: DiskEncryption
+    description: État de chiffrement disque/volume (LUKS/BitLocker) + périmètre
+    examples:
+      - "LUKS enabled on /dev/sda2"
+      - "BitLocker ON (C:)"
+
+  - name: AuditPolicy
+    description: Politique d'audit (auditd/AuditPol) synthétisée
+    examples:
+      - "auditd rules: baseline CIS applied"
+      - "AuditPol: Logon/AccountMgmt enabled"
+
+  - name: Update
+    description: Patch/hotfix/update identifié (KB, errata) avec état si présent
+    examples:
+      - "KB5037765 (Installed)"
+      - "RHSA-2026:1234 (Missing)"
+
+  # --- Drift / Historisation ---
+  - name: FindingState
+    description: État de cycle de vie d'un finding entre 2 runs (drift)
+    examples:
+      - "New"
+      - "Existing"
+      - "Resolved"
+      - "Regressed"
+
+  # --- Certificats TLS ---
+  - name: Certificate
+    description: Certificat TLS/X.509 (CN/SAN + dates si disponibles)
+    examples:
+      - "CN=portail.exemple.fr (expires 2026-11-30)"
+      - "SAN=api.exemple.fr; issuer=CorpCA (expires 2025-09-15)"
+
+  - name: CertificateStore
+    description: Magasin de certificats (Windows) ou emplacement logique
+    examples:
+      - "LocalMachine\\My"
+      - "LocalMachine\\Root"
+      - "Linux: /etc/ssl/certs"
+
+  - name: PrivateKeyACL
+    description: Permissions/ACL de clé privée (si explicitement décrites)
+    examples:
+      - "PrivateKey ACL: SYSTEM,RDG,NETWORK SERVICE"
+      - "PrivateKey ACL: root:root 600"
+
+  # --- Backups (exécution) ---
+  - name: BackupJob
+    description: Job de sauvegarde (outil + périmètre)
+    examples:
+      - "Veeam Job VM-APP-PROD nightly"
+      - "Rubrik job SQL-ERP full daily"
+
+  - name: BackupRun
+    description: Exécution d'un job (date + statut)
+    examples:
+      - "BackupRun 2026-03-06 SUCCESS"
+      - "BackupRun 2026-03-05 FAILED (timeout)"
+
+  - name: RestoreTest
+    description: Test de restauration (date + résultat)
+    examples:
+      - "RestoreTest 2026-Q1 OK"
+      - "RestoreTest 2026-02-15 FAILED (missing media)"
+
+  # --- Logs / SIEM ---
+  - name: LogPolicy
+    description: Politique de logs (rétention/rotation/config)
+    examples:
+      - "journald persistent; retention 14d"
+      - "Windows Event Logs: Security size 1GB; retention overwrite"
+
+  - name: LogForwarder
+    description: Agent / forwarder / collecteur (syslog/WEF/Splunk UF/AMA/osquery...)
+    examples:
+      - "Splunk Universal Forwarder (enabled)"
+      - "rsyslog -> siem.corp.local:514"
+      - "Windows Event Forwarding (WEF) enabled"
+
+  - name: SIEM
+    description: SIEM ou plateforme de centralisation (cible)
+    examples:
+      - "Splunk Enterprise"
+      - "Microsoft Sentinel"
+      - "Elastic SIEM"
+
 # =============================================================================
 # Types de relations
 # =============================================================================
@@ -814,6 +1015,176 @@ relation_types:
     examples:
       - "Portail Client → HAS_SLA → Disponibilité 99.9%"
 
+  # --- Audit & Conformité (option 2) ---
+  - name: AUDITED_BY
+    description: Un CI est audité par une exécution d'audit
+    examples:
+      - "vm-db-prod-02 → AUDITED_BY → AuditRun 2026-03-06 (scope=vm-db-prod-02, collector=Lynis)"
+
+  - name: USES_BASELINE
+    description: Un audit run utilise une baseline
+    examples:
+      - "AuditRun 2026-03-06 → USES_BASELINE → CIS RHEL 9 v1.0.0"
+
+  - name: HAS_CONTROL
+    description: Une baseline contient des contrôles
+    examples:
+      - "CIS RHEL 9 v1.0.0 → HAS_CONTROL → CIS 5.2.8 — SSH PermitRootLogin"
+
+  - name: RESULTED_IN
+    description: Un audit run produit un finding
+    examples:
+      - "AuditRun 2026-03-06 → RESULTED_IN → FAIL High — CIS 5.2.8 SSH PermitRootLogin (expected=no, found=yes)"
+
+  - name: FINDING_FOR
+    description: Un finding correspond à un contrôle
+    examples:
+      - "FAIL High — CIS 5.2.8 ... → FINDING_FOR → CIS 5.2.8 — SSH PermitRootLogin"
+
+  - name: AFFECTS
+    description: Un finding affecte un CI ou un élément de configuration
+    examples:
+      - "FAIL High — CIS 5.2.8 ... → AFFECTS → vm-db-prod-02"
+      - "FAIL High — CIS 5.2.8 ... → AFFECTS → sshd_config: PermitRootLogin=..."
+
+  - name: PROVEN_BY
+    description: Un finding/exception/remédiation est prouvé par une evidence
+    examples:
+      - "FAIL High — CIS 5.2.8 ... → PROVEN_BY → Evidence — /etc/ssh/sshd_config excerpt (sha256=...)"
+
+  - name: EXEMPTED_BY
+    description: Un finding est exempté par une exception
+    examples:
+      - "FAIL Medium — SMB signing disabled → EXEMPTED_BY → Exception approved — Legacy app requires ..."
+
+  - name: REMEDIATED_BY
+    description: Un finding est remédié par une action
+    examples:
+      - "FAIL High — CIS 5.2.8 ... → REMEDIATED_BY → Remediation Planned — set PermitRootLogin=no ..."
+
+  # --- Configuration observée (compléments audit) ---
+  - name: HAS_DNS_CONFIG
+    description: CI possède une configuration DNS
+    examples:
+      - "vm-app-prod-01 → HAS_DNS_CONFIG → DNS: 10.0.0.53,10.0.0.54; search corp.local"
+
+  - name: HAS_NTP_CONFIG
+    description: CI possède une configuration NTP
+    examples:
+      - "vm-app-prod-01 → HAS_NTP_CONFIG → NTP: chrony -> ntp1.corp.local (synced)"
+
+  - name: LISTENS_ON
+    description: Un CI ou un service écoute sur une socket (proto+port inclus dans le nom)
+    examples:
+      - "vm-app-prod-01 → LISTENS_ON → LISTEN TCP 22 (sshd)"
+      - "W3SVC (World Wide Web Publishing Service) → LISTENS_ON → LISTEN TCP 443 (IIS)"
+
+  - name: HAS_LINUX_FIREWALL_RULE
+    description: CI a des règles firewall Linux
+    examples:
+      - "vm-app-prod-01 → HAS_LINUX_FIREWALL_RULE → nft allow TCP 22 from 10.0.0.0/8"
+
+  - name: ALLOWED_BY
+    description: Une socket/service est autorisé(e) par une règle firewall
+    examples:
+      - "LISTEN TCP 22 (sshd) → ALLOWED_BY → nft allow TCP 22 from 10.0.0.0/8"
+      - "LISTEN TCP 443 (IIS) → ALLOWED_BY → Inbound allow TCP 443 (IIS HTTPS)"
+
+  - name: HAS_SECURITY_AGENT
+    description: CI possède un agent AV/EDR
+    examples:
+      - "vm-win-prod-01 → HAS_SECURITY_AGENT → Defender: RTP=On; signatures up-to-date"
+
+  - name: HAS_MAC_POLICY
+    description: CI a une politique SELinux/AppArmor
+    examples:
+      - "vm-app-prod-01 → HAS_MAC_POLICY → SELinux Enforcing"
+
+  - name: HAS_DISK_ENCRYPTION
+    description: CI a un état de chiffrement disque/volume
+    examples:
+      - "vm-db-prod-02 → HAS_DISK_ENCRYPTION → LUKS enabled on /dev/sda2"
+
+  - name: HAS_AUDIT_POLICY
+    description: CI a une politique d'audit (auditd/AuditPol)
+    examples:
+      - "vm-win-prod-01 → HAS_AUDIT_POLICY → AuditPol: Logon/AccountMgmt enabled"
+
+  - name: HAS_UPDATE
+    description: CI a un update/KB/errata (installé/manquant)
+    examples:
+      - "vm-win-prod-01 → HAS_UPDATE → KB5037765 (Installed)"
+
+  # --- Drift / Historisation ---
+  - name: PREVIOUS_RUN
+    description: Lien vers un audit run précédent (chaînage/historique)
+    examples:
+      - "AuditRun 2026-03-06 (...) → PREVIOUS_RUN → AuditRun 2026-02-01 (...)"
+
+  - name: SUPERSEDES
+    description: Un audit run en remplace un autre (même scope)
+    examples:
+      - "AuditRun 2026-03-06 (...) → SUPERSEDES → AuditRun 2026-02-01 (...)"
+
+  - name: HAS_FINDING_STATE
+    description: Un finding est associé à un état de drift (New/Resolved/...)
+    examples:
+      - "FAIL High — CIS 5.2.8 ... → HAS_FINDING_STATE → New"
+
+  # --- Certificats TLS ---
+  - name: USES_CERTIFICATE
+    description: Un service endpoint/application utilise un certificat
+    examples:
+      - "https://portail.exemple.fr:443 → USES_CERTIFICATE → CN=portail.exemple.fr (expires 2026-11-30)"
+
+  - name: STORED_IN
+    description: Un certificat est stocké dans un store
+    examples:
+      - "CN=portail.exemple.fr (...) → STORED_IN → LocalMachine\\My"
+
+  - name: HAS_PRIVATE_KEY_ACL
+    description: Un certificat ou service a des permissions de clé privée
+    examples:
+      - "CN=portail.exemple.fr (...) → HAS_PRIVATE_KEY_ACL → PrivateKey ACL: SYSTEM,RDG,NETWORK SERVICE"
+
+  # --- Backups (exécution) ---
+  - name: BACKED_UP_BY_JOB
+    description: Un CI est sauvegardé par un job
+    examples:
+      - "vm-db-prod-02 → BACKED_UP_BY_JOB → Veeam Job VM-DB-PROD nightly"
+
+  - name: IMPLEMENTS_POLICY
+    description: Un job met en œuvre une politique
+    examples:
+      - "Veeam Job VM-DB-PROD nightly → IMPLEMENTS_POLICY → Backup quotidien (rétention 30j, RPO 24h)"
+
+  - name: EXECUTED_AS
+    description: Un job a une exécution (run)
+    examples:
+      - "Veeam Job VM-DB-PROD nightly → EXECUTED_AS → BackupRun 2026-03-06 SUCCESS"
+
+  - name: TESTED_BY
+    description: Un job a un test de restauration
+    examples:
+      - "Veeam Job VM-DB-PROD nightly → TESTED_BY → RestoreTest 2026-Q1 OK"
+
+  # --- Logs / SIEM ---
+  - name: HAS_LOG_POLICY
+    description: Un CI a une politique de logs
+    examples:
+      - "vm-app-prod-01 → HAS_LOG_POLICY → journald persistent; retention 14d"
+
+  - name: USES_LOG_FORWARDER
+    description: Un CI utilise un forwarder/agent de logs
+    examples:
+      - "vm-app-prod-01 → USES_LOG_FORWARDER → Splunk Universal Forwarder (enabled)"
+
+  - name: FORWARDS_LOGS_TO
+    description: Un forwarder ou un CI envoie ses logs vers un SIEM
+    examples:
+      - "Splunk Universal Forwarder (enabled) → FORWARDS_LOGS_TO → Splunk Enterprise"
+      - "vm-app-prod-01 → FORWARDS_LOGS_TO → Microsoft Sentinel"
+
 # =============================================================================
 # Règles d'extraction
 # =============================================================================
@@ -826,6 +1197,12 @@ extraction_rules:
   extract_implicit_relations: true
 
   priority_entities:
+    - AuditRun
+    - Baseline
+    - Control
+    - Finding
+    - Evidence
+    - RemediationAction
     - Environment
     - BusinessService
     - Application
@@ -846,6 +1223,24 @@ extraction_rules:
     - Domain
     - WindowsService
     - WindowsRoleFeature
+    - Update
+    - ListeningSocket
+    - LinuxFirewallRule
+    - DNSConfig
+    - NTPConfig
+    - SecurityAgent
+    - DiskEncryption
+    - MACPolicy
+    - AuditPolicy
+    - FindingState
+    - Certificate
+    - CertificateStore
+    - BackupJob
+    - BackupRun
+    - RestoreTest
+    - LogPolicy
+    - LogForwarder
+    - SIEM
     - NetworkInterface
     - IPAddress
     - Subnet
@@ -975,6 +1370,40 @@ extraction_rules:
     # --- EXCLUSIONS ---
     - Ignorer les identifiants techniques isolés sans contexte (UUID, tickets, numéros de build).
     - Ne pas extraire des chemins de fichiers ou des commandes comme entités.
+
+    # --- AUDIT / CONFORMITÉ (option 2) ---
+    - Si le document est un rapport d'audit (CIS/ANSSI/STIG/Lynis/GPO baseline), crée un AuditRun unique
+      (inclure date et outil si disponibles) et relie-le aux CI concernés via AUDITED_BY.
+    - Si une baseline est mentionnée, crée une entité Baseline (inclure la version) et relie via USES_BASELINE.
+    - Chaque contrôle explicite = Control (inclure l'ID + le titre) et, si Baseline existe, relier via HAS_CONTROL.
+    - Chaque résultat = Finding, et DOIT inclure : PASS/FAIL/NA + sévérité + expected/found si présents.
+      Ne pas extraire une liste exhaustive de 200 PASS : privilégier les FAIL et les contrôles critiques.
+    - Toute preuve (sortie de commande, export, extrait de conf, capture, log) = Evidence.
+      Lie Finding/Exception/RemediationAction → PROVEN_BY → Evidence.
+
+    # --- PORTS / SOCKETS ---
+    - Ne crée jamais d'entité "Port". Utilise ListeningSocket avec le port dans le nom.
+      Ex: "LISTEN TCP 443 (nginx)".
+
+    # --- LIMITES PRAGMATIQUES (anti-explosion) ---
+    - Updates (KB/errata) : extraire en priorité les updates marqués Missing/Critical et limiter à ~10-30.
+    - ListeningSocket : extraire en priorité les sockets exposées/non standard et limiter à ~10-30.
+    - LinuxFirewallRule : extraire en priorité les règles INBOUND explicites et limiter à ~10-30.
+
+    # --- PACK AUDITS : DRIFT / CERTIFICATS / BACKUPS / LOGS ---
+    - Drift/historisation : si le document compare deux périodes ("avant/après", "previous run") ou mentionne "regression"/"resolved",
+      lie les AuditRun via PREVIOUS_RUN ou SUPERSEDES, et associe les Finding à un FindingState (New/Existing/Resolved/Regressed).
+
+    - Certificats : extraire uniquement les certificats réellement utilisés (IIS/Nginx/Apache/RDP/endpoint HTTPS),
+      inclure l'expiration dans le nom si disponible, et relier via USES_CERTIFICATE.
+      Si un store est mentionné, créer CertificateStore et relier via STORED_IN.
+
+    - Backups : si un job et son dernier statut sont mentionnés, créer BackupJob + BackupRun et relier via BACKED_UP_BY_JOB + EXECUTED_AS.
+      Si une politique est donnée, relier via IMPLEMENTS_POLICY.
+      Si un test de restauration est mentionné, créer RestoreTest et relier via TESTED_BY.
+
+    - Logs/SIEM : extraire la politique (LogPolicy), l'agent (LogForwarder) et la cible (SIEM) si mentionnés.
+      Relier via HAS_LOG_POLICY / USES_LOG_FORWARDER / FORWARDS_LOGS_TO.
 
 # =============================================================================
 # Exemples d'extraction
