@@ -68,6 +68,11 @@ Développé par **[Cloud Temple](https://www.cloud-temple.com)**.
 
 > Historique complet : voir [CHANGELOG.md](CHANGELOG.md)
 
+### v1.4.0 — 8 mars 2026 — 📋 Descriptions paramètres MCP + Health compact
+- 📋 **53 paramètres annotés** — Tous les paramètres des 28 tools MCP avec `Annotated[type, Field(description="...")]` (fini le "No description" dans Cline)
+- 🏥 **Endpoint `/health` simplifié** — Format compact : `{"status": "ok", "service": "graph-memory", "version": "1.4.0", "transport": "streamable-http"}`
+- 🔍 **Scripts de vérification** — `check_param_descriptions.py` (statique) + `check_mcp_tools_api.py` (live)
+
 ### v1.4.0 — 3 avril 2026 — 🔄 Migration SSE → Streamable HTTP
 - 🔄 **Migration complète SSE → Streamable HTTP** — Endpoint unique `/mcp` remplaçant `/sse` + `/messages`. `mcp>=1.8.0` requis.
 - 🔧 **WAF mis à jour** — Route unique `/mcp*`, rate limiting ajusté (200 req/min MCP, 500 global)

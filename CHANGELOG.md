@@ -2,6 +2,12 @@
 
 ## [1.4.0] - 2026-04-03
 
+### 📋 Descriptions de paramètres MCP tools (2026-03-08)
+
+- 📋 **53 paramètres annotés** — Tous les paramètres utilisateur des 28 tools MCP utilisent `Annotated[type, Field(description="...")]` pour exposer les descriptions dans Cline et les clients MCP
+- 🏥 **Endpoint `/health` simplifié** — Format compact aligné sur live-memory : `{"status": "ok", "service": "graph-memory", "version": "1.4.0", "transport": "streamable-http"}`
+- 🔍 **Scripts de vérification** — `scripts/check_param_descriptions.py` (analyse statique) et `scripts/check_mcp_tools_api.py` (vérification live via MCP `tools/list`)
+
 ### 🔄 Migration SSE → Streamable HTTP (issue #1)
 
 **Migration complète** du transport MCP de SSE (déprécié dans la spec MCP 2025-03-26) vers **Streamable HTTP**. Migration propre sans rétrocompatibilité.

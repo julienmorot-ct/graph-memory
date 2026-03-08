@@ -12,6 +12,17 @@ Built by **[Cloud Temple](https://www.cloud-temple.com)**.
 
 ---
 
+## 📋 Changelog
+
+> Full history: see [CHANGELOG.md](CHANGELOG.md)
+
+### v1.4.0 — March 8, 2026 — 📋 MCP parameter descriptions + Compact health
+- 📋 **53 annotated parameters** — All parameters of 28 MCP tools use `Annotated[type, Field(description="...")]` (no more "No description" in Cline)
+- 🏥 **Simplified `/health` endpoint** — Compact format: `{"status": "ok", "service": "graph-memory", "version": "1.4.0", "transport": "streamable-http"}`
+- 🔄 **SSE → Streamable HTTP migration** — Single `/mcp` endpoint replacing `/sse` + `/messages`, `mcp>=1.8.0` required
+
+---
+
 ## 🎯 Concept
 
 **Graph-First approach**: instead of classic vector RAG (embedding → cosine similarity), this service extracts **entities** and **relations** via an LLM to build a queryable knowledge graph.
