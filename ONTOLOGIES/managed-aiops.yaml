@@ -330,6 +330,18 @@ entity_types:
       - "Portail Client"
       - "ERP"
 
+  - name: WorkloadRole
+    description: Rôle fonctionnel d'un CI/serveur dans une application (web/app/db/batch/cache...)
+    examples:
+      - "Role: Web"
+      - "Role: App"
+      - "Role: DB"
+      - "Role: Batch"
+      - "Role: Bastion"
+      - "Role: Cache"
+      - "Role: Proxy"
+      - "Role: Monitoring"
+
   - name: Application
     description: Application (brique applicative) déployée
     priority: high
@@ -484,8 +496,8 @@ entity_types:
   - name: MonitoringTool
     description: Outil de monitoring / supervision
     examples:
-      - "Centreon"
-      - "Zabbix"
+      - "RTMS"
+      - "Grafana"
       - "Prometheus"
 
   - name: BackupPolicy
@@ -896,11 +908,24 @@ relation_types:
       - "tomcat-portail-prod-01 → PART_OF → Cluster Tomcat Prod"
       - "erp-web → PART_OF → ERP"
 
+  - name: SUPPORTS_BUSINESS_SERVICE
+    description: Une application supporte un service métier
+    examples:
+      - "billing-api → SUPPORTS_BUSINESS_SERVICE → Service Facturation"
+      - "portail-web → SUPPORTS_BUSINESS_SERVICE → Portail Client"
+
   - name: RUNS_ON
     description: S'exécute sur (hébergement)
     examples:
       - "tomcat-portail-prod-01 → RUNS_ON → vm-app-prod-01"
       - "pg-billing-prod → RUNS_ON → vm-db-prod-02"
+
+  - name: HAS_ROLE
+    description: Un CI a un rôle fonctionnel dans une application
+    examples:
+      - "vm-app-prod-01 → HAS_ROLE → Role: App"
+      - "vm-db-prod-02 → HAS_ROLE → Role: DB"
+      - "haproxy-prod-01 → HAS_ROLE → Role: Proxy"
 
   - name: HAS_OS
     description: Possède un OS
@@ -1206,6 +1231,7 @@ extraction_rules:
     - Environment
     - BusinessService
     - Application
+    - WorkloadRole
     - VirtualMachine
     - AssetTag
     - LifecycleState
@@ -1273,6 +1299,20 @@ extraction_rules:
       ✅ "sqlsrv-erp-prod (SQL Server 2019, Prod)"
       ❌ "SQL Server" seul, ❌ "2019" seul.
 
+    # --- RÔLE DU SERVEUR DANS L'APPLICATION (WorkloadRole) ---
+    - Si un CI/serveur est décrit avec un rôle (web/app/db/batch/cache/bastion/proxy/monitoring),
+      crée un WorkloadRole normalisé et lie-le via HAS_ROLE.
+      Normalisation recommandée :
+      * "web", "frontend", "http" → "Role: Web"
+      * "app", "api", "backend" → "Role: App"
+      * "db", "database", "sql" → "Role: DB"
+      * "batch", "scheduler", "etl" → "Role: Batch"
+      * "bastion" → "Role: Bastion"
+      * "cache", "redis" → "Role: Cache"
+      * "proxy", "lb", "load balancer" → "Role: Proxy"
+      * "monitoring", "supervision" → "Role: Monitoring"
+      Évite de créer 20 variantes ("role webserver", "role front", etc.).
+
     # --- RÉSEAU CMDB (IP / SUBNET / VLAN / DNS) ---
     - Les adresses IP (IPv4 et IPv6) sont des entités IPAddress.
       Elles doivent être reliées à une NetworkInterface via HAS_IP.
@@ -1290,6 +1330,10 @@ extraction_rules:
                ServiceEndpoint → USES_DNS → DNSRecord
 
     - Ne crée JAMAIS d'entité "Port" isolée.
+
+    # --- APPLICATION ↔ SERVICE MÉTIER ---
+    - Si une application est explicitement présentée comme supportant un service métier ("Le service X s'appuie sur l'application Y"),
+      crée la relation SUPPORTS_BUSINESS_SERVICE : Application → BusinessService.
 
     # --- CMDB++ (ASSET & LIFECYCLE) ---
     - Extrais les AssetTag (tags CMDB) uniquement s'ils sont associés à un CI identifié
