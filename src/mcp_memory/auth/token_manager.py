@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 TokenManager - Gestion des tokens d'authentification clients.
 
@@ -6,14 +5,13 @@ Les tokens sont stockés dans Neo4j sous forme de nœuds :Token.
 Seul le hash du token est stocké (pas le token en clair).
 """
 
-import sys
-import secrets
 import hashlib
+import secrets
+import sys
 from datetime import datetime, timedelta
-from typing import Optional, List
 
 from ..config import get_settings
-from ..core.models import TokenInfo, TokenCreateRequest
+from ..core.models import TokenInfo
 
 
 class TokenManager:
@@ -34,7 +32,7 @@ class TokenManager:
         is_active: true
     })
     """
-    
+
     def __init__(self, graph_service=None):
         """
         Initialise le TokenManager.
@@ -44,7 +42,7 @@ class TokenManager:
         """
         self._graph_service = graph_service
         self._settings = get_settings()
-    
+
     @property
     def graph(self):
         """Lazy-load du GraphService."""
@@ -52,24 +50,24 @@ class TokenManager:
             from ..core.graph import get_graph_service
             self._graph_service = get_graph_service()
         return self._graph_service
-    
+
     @staticmethod
     def _hash_token(token: str) -> str:
         """Hash un token avec SHA256."""
         return hashlib.sha256(token.encode()).hexdigest()
-    
+
     @staticmethod
     def _generate_token() -> str:
         """Génère un token sécurisé."""
         return secrets.token_urlsafe(32)
-    
+
     async def create_token(
         self,
         client_name: str,
-        permissions: List[str] = None,
-        memory_ids: List[str] = None,
-        expires_in_days: Optional[int] = None,
-        email: Optional[str] = None
+        permissions: list[str] = None,
+        memory_ids: list[str] = None,
+        expires_in_days: int | None = None,
+        email: str | None = None
     ) -> str:
         """
         Crée un nouveau token pour un client.
@@ -88,16 +86,16 @@ class TokenManager:
             permissions = ["read", "write"]
         if memory_ids is None:
             memory_ids = []
-        
+
         # Générer le token
         token = self._generate_token()
         token_hash = self._hash_token(token)
-        
+
         # Calculer l'expiration
         expires_at = None
         if expires_in_days:
             expires_at = datetime.utcnow() + timedelta(days=expires_in_days)
-        
+
         # Stocker dans Neo4j
         async with self.graph.session() as session:
             await session.run(
@@ -120,13 +118,13 @@ class TokenManager:
                 memory_ids=memory_ids,
                 expires_at=expires_at.isoformat() if expires_at else None
             )
-        
+
         print(f"🔑 [Auth] Token créé pour client '{client_name}'", file=sys.stderr)
-        
+
         # Retourner le token en clair (seule fois où il est accessible)
         return token
-    
-    async def validate_token(self, token: str) -> Optional[TokenInfo]:
+
+    async def validate_token(self, token: str) -> TokenInfo | None:
         """
         Valide un token et retourne ses informations.
         
@@ -137,7 +135,7 @@ class TokenManager:
             TokenInfo si valide, None sinon
         """
         token_hash = self._hash_token(token)
-        
+
         async with self.graph.session() as session:
             result = await session.run(
                 """
@@ -146,14 +144,14 @@ class TokenManager:
                 """,
                 hash=token_hash
             )
-            
+
             record = await result.single()
-            
+
             if not record:
                 return None
-            
+
             node = record["t"]
-            
+
             # Vérifier l'expiration
             expires_at = None
             if node.get("expires_at"):
@@ -164,7 +162,7 @@ class TokenManager:
                         return None
                 except:
                     pass
-            
+
             return TokenInfo(
                 token_hash=node["hash"],
                 client_name=node["client_name"],
@@ -175,7 +173,7 @@ class TokenManager:
                 expires_at=expires_at,
                 is_active=node.get("is_active", True)
             )
-    
+
     async def revoke_token(self, token_hash: str) -> bool:
         """
         Révoque un token (le désactive).
@@ -195,15 +193,15 @@ class TokenManager:
                 """,
                 hash=token_hash
             )
-            
+
             record = await result.single()
-            
+
             if record:
                 print(f"🚫 [Auth] Token révoqué: {token_hash[:8]}...", file=sys.stderr)
                 return True
             return False
-    
-    async def list_tokens(self, include_revoked: bool = False) -> List[TokenInfo]:
+
+    async def list_tokens(self, include_revoked: bool = False) -> list[TokenInfo]:
         """
         Liste tous les tokens.
         
@@ -218,20 +216,20 @@ class TokenManager:
             if not include_revoked:
                 query += "WHERE t.is_active = true "
             query += "RETURN t ORDER BY t.created_at DESC"
-            
+
             result = await session.run(query)
-            
+
             tokens = []
             async for record in result:
                 node = record["t"]
-                
+
                 expires_at = None
                 if node.get("expires_at"):
                     try:
                         expires_at = datetime.fromisoformat(node["expires_at"])
                     except:
                         pass
-                
+
                 tokens.append(TokenInfo(
                     token_hash=node["hash"],
                     client_name=node["client_name"],
@@ -242,16 +240,16 @@ class TokenManager:
                     expires_at=expires_at,
                     is_active=node.get("is_active", True)
                 ))
-            
+
             return tokens
-    
+
     async def update_token_memories(
         self,
         token_hash: str,
-        add_memories: Optional[List[str]] = None,
-        remove_memories: Optional[List[str]] = None,
-        set_memories: Optional[List[str]] = None
-    ) -> Optional[dict]:
+        add_memories: list[str] | None = None,
+        remove_memories: list[str] | None = None,
+        set_memories: list[str] | None = None
+    ) -> dict | None:
         """
         Met à jour les memory_ids autorisés d'un token.
         
@@ -276,27 +274,27 @@ class TokenManager:
                 hash=token_hash
             )
             record = await result.single()
-            
+
             if not record:
                 return None
-            
+
             node = record["t"]
             current_memories = list(node.get("memory_ids", []))
-            
+
             if set_memories is not None:
                 # Mode remplacement total
                 new_memories = set_memories
             else:
                 # Mode ajout/retrait incrémental
                 memory_set = set(current_memories)
-                
+
                 if add_memories:
                     memory_set.update(add_memories)
                 if remove_memories:
                     memory_set -= set(remove_memories)
-                
+
                 new_memories = sorted(memory_set)
-            
+
             # Mettre à jour dans Neo4j
             await session.run(
                 """
@@ -306,21 +304,21 @@ class TokenManager:
                 hash=token_hash,
                 memory_ids=new_memories
             )
-            
+
             print(f"🔑 [Auth] Token {token_hash[:8]}... mémoires mises à jour: {new_memories}", file=sys.stderr)
-            
+
             return {
                 "token_hash": token_hash,
                 "client_name": node["client_name"],
                 "previous_memories": current_memories,
                 "current_memories": new_memories
             }
-    
+
     async def update_token_permissions(
         self,
         token_hash: str,
-        permissions: List[str]
-    ) -> Optional[dict]:
+        permissions: list[str]
+    ) -> dict | None:
         """
         Met à jour les permissions d'un token.
         
@@ -339,7 +337,7 @@ class TokenManager:
         invalid = set(permissions) - valid_permissions
         if invalid:
             raise ValueError(f"Permissions invalides: {invalid}. Valides: {valid_permissions}")
-        
+
         async with self.graph.session() as session:
             # Récupérer le token
             result = await session.run(
@@ -347,13 +345,13 @@ class TokenManager:
                 hash=token_hash
             )
             record = await result.single()
-            
+
             if not record:
                 return None
-            
+
             node = record["t"]
             previous_permissions = list(node.get("permissions", []))
-            
+
             # Mettre à jour dans Neo4j
             await session.run(
                 """
@@ -363,22 +361,22 @@ class TokenManager:
                 hash=token_hash,
                 permissions=permissions
             )
-            
+
             action = "promu admin" if "admin" in permissions and "admin" not in previous_permissions else "mis à jour"
             print(f"🔑 [Auth] Token {token_hash[:8]}... permissions {action}: {permissions}", file=sys.stderr)
-            
+
             return {
                 "token_hash": token_hash,
                 "client_name": node["client_name"],
                 "previous_permissions": previous_permissions,
                 "current_permissions": permissions
             }
-    
+
     async def check_permission(
         self,
         token_info: TokenInfo,
         required_permission: str,
-        memory_id: Optional[str] = None
+        memory_id: str | None = None
     ) -> bool:
         """
         Vérifie si un token a la permission requise.
@@ -395,17 +393,17 @@ class TokenManager:
         if required_permission not in token_info.permissions:
             if "admin" not in token_info.permissions:  # admin a toutes les permissions
                 return False
-        
+
         # Vérifier l'accès à la mémoire (si spécifié)
         if memory_id and token_info.memory_ids:
             if memory_id not in token_info.memory_ids:
                 return False
-        
+
         return True
 
 
 # Singleton pour usage global
-_token_manager: Optional[TokenManager] = None
+_token_manager: TokenManager | None = None
 
 
 def get_token_manager() -> TokenManager:

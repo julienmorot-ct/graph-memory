@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 OntologyManager - Gestion des ontologies pour l'extraction.
 
@@ -8,9 +7,9 @@ spécifiques à chaque domaine (juridique, cloud, infogérance, etc.).
 
 import os
 import sys
-from pathlib import Path
-from typing import Optional, Dict, List, Any
 from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -20,7 +19,7 @@ class EntityTypeDefinition:
     """Définition d'un type d'entité."""
     name: str
     description: str
-    examples: List[str] = field(default_factory=list)
+    examples: list[str] = field(default_factory=list)
     priority: str = "normal"  # normal, high
 
 
@@ -29,7 +28,7 @@ class RelationTypeDefinition:
     """Définition d'un type de relation."""
     name: str
     description: str
-    examples: List[str] = field(default_factory=list)
+    examples: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -41,7 +40,7 @@ class ExtractionRules:
     include_durations: bool = True
     include_amounts: bool = True
     extract_implicit_relations: bool = False
-    priority_entities: List[str] = field(default_factory=list)
+    priority_entities: list[str] = field(default_factory=list)
     special_instructions: str = ""
 
 
@@ -52,11 +51,11 @@ class Ontology:
     version: str
     description: str
     context: str
-    entity_types: List[EntityTypeDefinition]
-    relation_types: List[RelationTypeDefinition]
+    entity_types: list[EntityTypeDefinition]
+    relation_types: list[RelationTypeDefinition]
     extraction_rules: ExtractionRules
-    examples: List[Dict[str, Any]] = field(default_factory=list)
-    
+    examples: list[dict[str, Any]] = field(default_factory=list)
+
     def build_prompt(self, document_text: str, cumulative_context: str = "") -> str:
         """
         Construit le prompt d'extraction à partir de l'ontologie.
@@ -72,7 +71,7 @@ class Ontology:
         # Séparer les entités prioritaires des autres
         priority_entities = [et for et in self.entity_types if et.priority == "high"]
         other_entities = [et for et in self.entity_types if et.priority != "high"]
-        
+
         # Section entités prioritaires (extraction OBLIGATOIRE)
         priority_str = ""
         if priority_entities or self.extraction_rules.priority_entities:
@@ -81,19 +80,19 @@ class Ontology:
             for et in priority_types:
                 priority_str += f"- **{et.name}**: {et.description}\n  Exemples: {', '.join(et.examples[:3])}\n"
             priority_str += "\n⚠️ TU DOIS EXTRAIRE TOUTES CES ENTITÉS SI ELLES SONT PRÉSENTES DANS LE DOCUMENT!\n"
-        
+
         # Construction des autres types d'entités
         entity_types_str = "\n".join([
             f"- {et.name}: {et.description}\n  Exemples: {', '.join(et.examples[:3])}"
             for et in other_entities
         ])
-        
+
         # Construction des types de relations
         relation_types_str = "\n".join([
             f"- {rt.name}: {rt.description}\n  Exemples: {', '.join(rt.examples[:2])}"
             for rt in self.relation_types
         ])
-        
+
         # Instructions spéciales
         special_instructions = ""
         if self.extraction_rules.special_instructions:
@@ -101,7 +100,7 @@ class Ontology:
 📋 INSTRUCTIONS SPÉCIALES (OBLIGATOIRES):
 {self.extraction_rules.special_instructions}
 """
-        
+
         # Section contexte cumulatif (pour extraction chunked)
         cumulative_section = ""
         if cumulative_context:
@@ -115,7 +114,7 @@ class Ontology:
 - Concentre-toi sur les NOUVELLES entités et relations de cette section
 - Si une entité déjà connue apparaît avec plus de détails, enrichis sa description dans le JSON
 """
-        
+
         prompt = f"""{self.context}
 
 📄 DOCUMENT À ANALYSER:
@@ -173,44 +172,44 @@ class OntologyManager:
     Charge les ontologies depuis le dossier ONTOLOGIES/ et permet
     de les récupérer par nom.
     """
-    
+
     # Chemin par défaut des ontologies (dans le conteneur ou en local)
     DEFAULT_ONTOLOGY_PATHS = [
         "/app/ONTOLOGIES",  # Dans le conteneur Docker
         str(Path(__file__).parent.parent.parent.parent / "ONTOLOGIES"),  # Relatif au code
     ]
-    
-    def __init__(self, ontology_path: Optional[str] = None):
+
+    def __init__(self, ontology_path: str | None = None):
         """
         Initialise le gestionnaire d'ontologies.
         
         Args:
             ontology_path: Chemin vers le dossier des ontologies (optionnel)
         """
-        self._ontologies: Dict[str, Ontology] = {}
+        self._ontologies: dict[str, Ontology] = {}
         self._ontology_path = self._find_ontology_path(ontology_path)
-        
+
         if self._ontology_path:
             self._load_all_ontologies()
         else:
             print("⚠️ [Ontology] Aucun dossier ONTOLOGIES trouvé", file=sys.stderr)
-    
-    def _find_ontology_path(self, custom_path: Optional[str]) -> Optional[str]:
+
+    def _find_ontology_path(self, custom_path: str | None) -> str | None:
         """Trouve le chemin du dossier d'ontologies."""
         if custom_path and os.path.isdir(custom_path):
             return custom_path
-        
+
         for path in self.DEFAULT_ONTOLOGY_PATHS:
             if os.path.isdir(path):
                 return path
-        
+
         return None
-    
+
     def _load_all_ontologies(self):
         """Charge toutes les ontologies du dossier."""
         if not self._ontology_path:
             return
-        
+
         for filename in os.listdir(self._ontology_path):
             if filename.endswith('.yaml') or filename.endswith('.yml'):
                 filepath = os.path.join(self._ontology_path, filename)
@@ -221,15 +220,15 @@ class OntologyManager:
                         print(f"✅ [Ontology] Chargée: {ontology.name} (v{ontology.version})", file=sys.stderr)
                 except Exception as e:
                     print(f"❌ [Ontology] Erreur chargement {filename}: {e}", file=sys.stderr)
-    
-    def _load_ontology_file(self, filepath: str) -> Optional[Ontology]:
+
+    def _load_ontology_file(self, filepath: str) -> Ontology | None:
         """Charge une ontologie depuis un fichier YAML."""
-        with open(filepath, 'r', encoding='utf-8') as f:
+        with open(filepath, encoding='utf-8') as f:
             data = yaml.safe_load(f)
-        
+
         if not data:
             return None
-        
+
         # Parser les types d'entités
         entity_types = []
         for et in data.get('entity_types', []):
@@ -239,7 +238,7 @@ class OntologyManager:
                 examples=et.get('examples', []),
                 priority=et.get('priority', 'normal')
             ))
-        
+
         # Parser les types de relations
         relation_types = []
         for rt in data.get('relation_types', []):
@@ -248,7 +247,7 @@ class OntologyManager:
                 description=rt.get('description', ''),
                 examples=rt.get('examples', [])
             ))
-        
+
         # Parser les règles d'extraction
         rules_data = data.get('extraction_rules', {})
         extraction_rules = ExtractionRules(
@@ -261,7 +260,7 @@ class OntologyManager:
             priority_entities=rules_data.get('priority_entities', []),
             special_instructions=rules_data.get('special_instructions', '')
         )
-        
+
         return Ontology(
             name=data.get('name', 'unknown'),
             version=data.get('version', '1.0'),
@@ -272,8 +271,8 @@ class OntologyManager:
             extraction_rules=extraction_rules,
             examples=data.get('examples', [])
         )
-    
-    def get_ontology(self, name: str) -> Optional[Ontology]:
+
+    def get_ontology(self, name: str) -> Ontology | None:
         """
         Récupère une ontologie par son nom.
         
@@ -284,7 +283,7 @@ class OntologyManager:
             L'ontologie ou None si non trouvée
         """
         return self._ontologies.get(name)
-    
+
     def get_ontology_or_error(self, name: str) -> Ontology:
         """
         Récupère une ontologie par nom. Lève une erreur si introuvable.
@@ -307,8 +306,8 @@ class OntologyManager:
                 f"Chaque mémoire DOIT avoir une ontologie valide."
             )
         return ontology
-    
-    def list_ontologies(self) -> List[Dict[str, Any]]:
+
+    def list_ontologies(self) -> list[dict[str, Any]]:
         """
         Liste toutes les ontologies disponibles.
         
@@ -325,7 +324,7 @@ class OntologyManager:
             }
             for ont in self._ontologies.values()
         ]
-    
+
     def reload(self):
         """Recharge toutes les ontologies depuis le disque."""
         self._ontologies.clear()
@@ -333,7 +332,7 @@ class OntologyManager:
 
 
 # Singleton pour usage global
-_ontology_manager: Optional[OntologyManager] = None
+_ontology_manager: OntologyManager | None = None
 
 
 def get_ontology_manager() -> OntologyManager:

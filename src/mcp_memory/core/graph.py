@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 GraphService - Client Neo4j pour le Knowledge Graph.
 
@@ -9,18 +8,21 @@ Gère toutes les opérations sur le graphe de connaissances :
 """
 
 import sys
-from typing import Optional, List, Dict, Any
-from datetime import datetime
 from contextlib import asynccontextmanager
+from datetime import datetime
+from typing import Any
 
-from neo4j import AsyncGraphDatabase, AsyncDriver, AsyncSession
-from neo4j.exceptions import ServiceUnavailable, AuthError
+from neo4j import AsyncDriver, AsyncGraphDatabase, AsyncSession
+from neo4j.exceptions import AuthError, ServiceUnavailable
 
 from ..config import get_settings
 from .models import (
-    Memory, MemoryStats, Document, DocumentMetadata,
-    ExtractedEntity, ExtractedRelation, ExtractionResult,
-    SearchResult, GraphContext, SearchMode
+    Document,
+    DocumentMetadata,
+    ExtractionResult,
+    GraphContext,
+    Memory,
+    MemoryStats,
 )
 
 
@@ -34,14 +36,14 @@ class GraphService:
     Recherche: utilise un index fulltext Lucene avec analyzer 'standard-folding'
     pour la recherche accent-insensitive (é→e, ç→c, etc.).
     """
-    
+
     # Nom de l'index fulltext dans Neo4j
     FULLTEXT_INDEX_NAME = "entity_fulltext"
-    
+
     def __init__(self):
         """Initialise la connexion Neo4j."""
         settings = get_settings()
-        
+
         self._driver: AsyncDriver = AsyncGraphDatabase.driver(
             settings.neo4j_uri,
             auth=(settings.neo4j_user, settings.neo4j_password),
@@ -51,11 +53,11 @@ class GraphService:
         )
         self._database = settings.neo4j_database
         self._fulltext_index_ready = False  # Lazy init de l'index fulltext
-    
+
     async def close(self):
         """Ferme la connexion Neo4j."""
         await self._driver.close()
-    
+
     @asynccontextmanager
     async def session(self) -> AsyncSession:
         """Context manager pour obtenir une session Neo4j."""
@@ -64,31 +66,31 @@ class GraphService:
             yield session
         finally:
             await session.close()
-    
+
     def _ns(self, memory_id: str) -> str:
         """Retourne le préfixe namespace pour les labels."""
         # Remplace les caractères non-alphanumériques par _
         safe_id = "".join(c if c.isalnum() else "_" for c in memory_id)
         return safe_id
-    
+
     # =========================================================================
     # Test de connexion
     # =========================================================================
-    
+
     async def test_connection(self) -> dict:
         """Teste la connexion Neo4j."""
         try:
             async with self.session() as session:
                 result = await session.run("RETURN 1 AS test")
                 record = await result.single()
-                
+
                 # Récupérer quelques stats
                 stats_result = await session.run(
                     "CALL apoc.meta.stats() YIELD nodeCount, relCount "
                     "RETURN nodeCount, relCount"
                 )
                 stats = await stats_result.single()
-                
+
                 return {
                     "status": "ok",
                     "database": self._database,
@@ -96,7 +98,7 @@ class GraphService:
                     "rel_count": stats["relCount"] if stats else 0,
                     "message": "Connexion Neo4j réussie"
                 }
-                
+
         except AuthError:
             return {
                 "status": "error",
@@ -115,19 +117,19 @@ class GraphService:
                 "database": self._database,
                 "message": f"Erreur Neo4j: {str(e)}"
             }
-    
+
     # =========================================================================
     # Gestion des Mémoires
     # =========================================================================
-    
+
     async def create_memory(
         self,
         memory_id: str,
         name: str,
-        description: Optional[str] = None,
+        description: str | None = None,
         ontology: str = "default",
-        ontology_uri: Optional[str] = None,
-        owner_token: Optional[str] = None
+        ontology_uri: str | None = None,
+        owner_token: str | None = None
     ) -> Memory:
         """
         Crée une nouvelle mémoire (namespace).
@@ -136,7 +138,7 @@ class GraphService:
         L'ontologie est stockée sur S3, son URI est sauvegardée.
         """
         ns = self._ns(memory_id)
-        
+
         async with self.session() as session:
             # Vérifier si la mémoire existe déjà
             check = await session.run(
@@ -144,10 +146,10 @@ class GraphService:
                 id=memory_id
             )
             existing = await check.single()
-            
+
             if existing:
                 raise ValueError(f"La mémoire '{memory_id}' existe déjà")
-            
+
             # Créer la mémoire avec l'URI de l'ontologie
             result = await session.run(
                 """
@@ -171,12 +173,12 @@ class GraphService:
                 namespace=ns,
                 owner_token=owner_token
             )
-            
+
             record = await result.single()
             node = record["m"]
-            
+
             print(f"🧠 [Graph] Mémoire créée: {memory_id} (ns: {ns}, ontology: {ontology}, uri: {ontology_uri})", file=sys.stderr)
-            
+
             return Memory(
                 id=memory_id,
                 name=name,
@@ -186,8 +188,8 @@ class GraphService:
                 created_at=node["created_at"].to_native() if node.get("created_at") else datetime.utcnow(),
                 owner_token=owner_token
             )
-    
-    async def get_memory(self, memory_id: str) -> Optional[Memory]:
+
+    async def get_memory(self, memory_id: str) -> Memory | None:
         """Récupère une mémoire par son ID."""
         async with self.session() as session:
             result = await session.run(
@@ -195,10 +197,10 @@ class GraphService:
                 id=memory_id
             )
             record = await result.single()
-            
+
             if not record:
                 return None
-            
+
             node = record["m"]
             return Memory(
                 id=node["id"],
@@ -207,7 +209,7 @@ class GraphService:
                 ontology=node.get("ontology", "default"),
                 created_at=node["created_at"].to_native() if node.get("created_at") else datetime.utcnow()
             )
-    
+
     async def delete_memory(self, memory_id: str) -> bool:
         """
         Supprime une mémoire et tous ses nœuds associés.
@@ -215,7 +217,7 @@ class GraphService:
         ATTENTION: Opération destructive !
         """
         ns = self._ns(memory_id)
-        
+
         async with self.session() as session:
             # Supprimer tous les nœuds du namespace
             # Les labels dynamiques ne sont pas supportés directement,
@@ -228,7 +230,7 @@ class GraphService:
                 """,
                 memory_id=memory_id
             )
-            
+
             # Supprimer le nœud Memory
             result = await session.run(
                 """
@@ -238,22 +240,22 @@ class GraphService:
                 """,
                 id=memory_id
             )
-            
+
             record = await result.single()
             deleted = record["deleted"] > 0 if record else False
-            
+
             if deleted:
                 print(f"🗑️ [Graph] Mémoire supprimée: {memory_id}", file=sys.stderr)
-            
+
             return deleted
-    
-    async def list_memories(self) -> List[Memory]:
+
+    async def list_memories(self) -> list[Memory]:
         """Liste toutes les mémoires."""
         async with self.session() as session:
             result = await session.run(
                 "MATCH (m:Memory) RETURN m ORDER BY m.created_at DESC"
             )
-            
+
             memories = []
             async for record in result:
                 node = record["m"]
@@ -265,13 +267,13 @@ class GraphService:
                     ontology_uri=node.get("ontology_uri"),
                     created_at=node["created_at"].to_native() if node.get("created_at") else datetime.utcnow()
                 ))
-            
+
             return memories
-    
+
     # =========================================================================
     # Gestion des Documents
     # =========================================================================
-    
+
     async def add_document(
         self,
         memory_id: str,
@@ -279,9 +281,9 @@ class GraphService:
         uri: str,
         filename: str,
         doc_hash: str,
-        metadata: Optional[Dict[str, Any]] = None,
-        source_path: Optional[str] = None,
-        source_modified_at: Optional[str] = None,
+        metadata: dict[str, Any] | None = None,
+        source_path: str | None = None,
+        source_modified_at: str | None = None,
         size_bytes: int = 0,
         text_length: int = 0,
         content_type: str = "",
@@ -303,11 +305,11 @@ class GraphService:
             content_type: Extension/type du fichier (ex: "pdf", "docx")
         """
         import json
-        
+
         async with self.session() as session:
             # Neo4j n'accepte que les types primitifs, convertir metadata en JSON string
             metadata_json = json.dumps(metadata) if metadata else "{}"
-            
+
             result = await session.run(
                 """
                 CREATE (d:Document {
@@ -338,12 +340,12 @@ class GraphService:
                 text_length=text_length,
                 content_type=content_type
             )
-            
+
             record = await result.single()
             node = record["d"]
-            
+
             print(f"📄 [Graph] Document ajouté: {filename} ({doc_id})", file=sys.stderr)
-            
+
             return Document(
                 id=doc_id,
                 memory_id=memory_id,
@@ -356,8 +358,8 @@ class GraphService:
                     custom=metadata or {}
                 )
             )
-    
-    async def get_document_by_hash(self, memory_id: str, doc_hash: str) -> Optional[Document]:
+
+    async def get_document_by_hash(self, memory_id: str, doc_hash: str) -> Document | None:
         """Trouve un document par son hash."""
         async with self.session() as session:
             result = await session.run(
@@ -368,11 +370,11 @@ class GraphService:
                 memory_id=memory_id,
                 hash=doc_hash
             )
-            
+
             record = await result.single()
             if not record:
                 return None
-            
+
             node = record["d"]
             return Document(
                 id=node["id"],
@@ -386,8 +388,8 @@ class GraphService:
                     custom=node.get("metadata", {})
                 )
             )
-    
-    async def get_document(self, memory_id: str, doc_id: str) -> Optional[Dict[str, Any]]:
+
+    async def get_document(self, memory_id: str, doc_id: str) -> dict[str, Any] | None:
         """Récupère les informations complètes d'un document (métadonnées enrichies)."""
         async with self.session() as session:
             result = await session.run(
@@ -420,7 +422,7 @@ class GraphService:
                 }
             return None
 
-    async def delete_document(self, memory_id: str, doc_id: str) -> Dict[str, Any]:
+    async def delete_document(self, memory_id: str, doc_id: str) -> dict[str, Any]:
         """
         Supprime un document et nettoie le graphe.
         
@@ -447,7 +449,7 @@ class GraphService:
             )
             orphan_record = await orphan_result.single()
             orphan_names = orphan_record["orphan_names"] if orphan_record else []
-            
+
             # Compter les relations MENTIONS qui vont être supprimées
             count_result = await session.run(
                 """
@@ -459,7 +461,7 @@ class GraphService:
             )
             count_record = await count_result.single()
             mentions_count = count_record["relations"] if count_record else 0
-            
+
             # Supprimer les entités orphelines et leurs relations RELATED_TO
             entities_deleted = 0
             if orphan_names:
@@ -475,7 +477,7 @@ class GraphService:
                 )
                 orphan_deleted = await delete_orphans.single()
                 entities_deleted = orphan_deleted["deleted"] if orphan_deleted else 0
-            
+
             # Puis supprimer le document lui-même
             result = await session.run(
                 """
@@ -489,28 +491,28 @@ class GraphService:
 
             record = await result.single()
             deleted = record["deleted"] > 0 if record else False
-            
+
             if deleted:
                 print(f"🗑️ [Graph] Document supprimé: {doc_id}", file=sys.stderr)
                 print(f"   Entités orphelines supprimées: {entities_deleted}", file=sys.stderr)
                 print(f"   Relations MENTIONS supprimées: {mentions_count}", file=sys.stderr)
-            
+
             return {
                 "deleted": deleted,
                 "relations_deleted": mentions_count if deleted else 0,
                 "entities_deleted": entities_deleted if deleted else 0
             }
-    
+
     # =========================================================================
     # Gestion des Entités et Relations
     # =========================================================================
-    
+
     async def add_entities_and_relations(
         self,
         memory_id: str,
         doc_id: str,
         extraction: ExtractionResult
-    ) -> Dict[str, int]:
+    ) -> dict[str, int]:
         """
         Ajoute les entités et relations extraites au graphe.
         
@@ -525,7 +527,7 @@ class GraphService:
         entities_merged = 0
         relations_created = 0
         relations_merged = 0
-        
+
         async with self.session() as session:
             # =================================================================
             # Phase 1 : Ajouter/Merger les entités
@@ -578,7 +580,7 @@ class GraphService:
                     entities_created += 1
                 else:
                     entities_merged += 1
-            
+
             # =================================================================
             # Phase 2 : Ajouter/Enrichir les relations entre entités
             # =================================================================
@@ -616,23 +618,23 @@ class GraphService:
                     relations_created += 1
                 else:
                     relations_merged += 1
-        
+
         total_entities = entities_created + entities_merged
         total_relations = relations_created + relations_merged
         print(f"🔗 [Graph] Entités: {entities_created} nouvelles + {entities_merged} fusionnées = {total_entities}", file=sys.stderr)
         print(f"🔗 [Graph] Relations: {relations_created} nouvelles + {relations_merged} fusionnées = {total_relations}", file=sys.stderr)
-        
+
         return {
             "entities_created": entities_created,
             "entities_merged": entities_merged,
             "relations_created": relations_created,
             "relations_merged": relations_merged
         }
-    
+
     # =========================================================================
     # Recherche et Contexte
     # =========================================================================
-    
+
     async def ensure_fulltext_index(self):
         """
         Crée l'index fulltext pour la recherche d'entités (accent-insensitive).
@@ -658,8 +660,8 @@ class GraphService:
                 print("🔍 [Graph] Index fulltext 'entity_fulltext' créé/vérifié (standard-folding)", file=sys.stderr)
         except Exception as e:
             print(f"⚠️ [Graph] Impossible de créer l'index fulltext: {e}", file=sys.stderr)
-            print(f"   La recherche utilisera le mode CONTAINS (dégradé)", file=sys.stderr)
-    
+            print("   La recherche utilisera le mode CONTAINS (dégradé)", file=sys.stderr)
+
     @staticmethod
     def _escape_lucene(text: str) -> str:
         """
@@ -669,20 +671,20 @@ class GraphService:
         + - && || ! ( ) { } [ ] ^ " ~ * ? : \\ /
         On les préfixe avec \\ pour les traiter comme du texte littéral.
         """
-        special_chars = set('+-&|!(){}[]^"~*?:\\/') 
+        special_chars = set('+-&|!(){}[]^"~*?:\\/')
         result = []
         for char in text:
             if char in special_chars:
                 result.append('\\')
             result.append(char)
         return ''.join(result)
-    
+
     async def _search_fulltext(
         self,
         memory_id: str,
-        tokens: List[str],
+        tokens: list[str],
         limit: int
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Recherche via l'index fulltext Neo4j (accent-insensitive, scoring Lucene).
         
@@ -697,7 +699,7 @@ class GraphService:
             # Construire la requête Lucene: échapper les tokens et joindre avec OR
             escaped_tokens = [self._escape_lucene(t) for t in tokens]
             lucene_query = " OR ".join(escaped_tokens)
-            
+
             async with self.session() as session:
                 result = await session.run(
                     """
@@ -714,7 +716,7 @@ class GraphService:
                     memory_id=memory_id,
                     limit=limit
                 )
-                
+
                 entities = []
                 async for record in result:
                     entities.append({
@@ -728,14 +730,14 @@ class GraphService:
         except Exception as e:
             print(f"⚠️ [Search] Erreur fulltext: {e}", file=sys.stderr)
             return []
-    
+
     async def _search_contains(
         self,
         memory_id: str,
-        raw_tokens: List[str],
-        normalized_tokens: List[str],
+        raw_tokens: list[str],
+        normalized_tokens: list[str],
         limit: int
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Recherche via CONTAINS (fallback si fulltext indisponible).
         
@@ -746,7 +748,7 @@ class GraphService:
         """
         # Combiner raw (avec accents) + normalized (sans accents) pour couvrir les 2 cas
         all_tokens = list(set(raw_tokens + normalized_tokens))
-        
+
         async with self.session() as session:
             # Recherche avec ANY (au moins un token matche)
             # On utilise ANY plutôt que ALL car les tokens contiennent les 2 formes
@@ -768,7 +770,7 @@ class GraphService:
                 tokens=all_tokens,
                 limit=limit
             )
-            
+
             entities = []
             async for record in result:
                 entities.append({
@@ -777,15 +779,15 @@ class GraphService:
                     "description": record["description"],
                     "mentions": record["mentions"]
                 })
-            
+
             return entities
-    
+
     async def search_entities(
         self,
         memory_id: str,
         search_query: str,
         limit: int = 10
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Recherche des entités par nom, description et TYPE.
         
@@ -800,7 +802,7 @@ class GraphService:
         """
         import re
         import unicodedata
-        
+
         # Mots vides français à ignorer
         STOP_WORDS = {
             'les', 'des', 'une', 'uns', 'aux', 'par', 'pour', 'dans',
@@ -811,33 +813,33 @@ class GraphService:
             'aussi', 'très', 'bien', 'mais', 'comme', 'donc', 'car',
             'quel', 'quelle', 'quels', 'quelles', 'contient', 'corpus',
         }
-        
+
         def _normalize(text: str) -> str:
             """Retire accents et ponctuation pour normaliser."""
             text = re.sub(r'[^\w\s]', '', text)
             nfkd = unicodedata.normalize('NFKD', text)
             return ''.join(c for c in nfkd if not unicodedata.combining(c))
-        
+
         # Tokeniser la requête (mots individuels, sans stop words, sans ponctuation)
         raw_tokens_all = re.findall(r'[a-zA-ZÀ-ÿ]+', search_query.lower())
-        
+
         # Tokens significatifs (> 2 chars, pas de stop words)
         meaningful_raw = [t for t in raw_tokens_all if len(t) > 2 and t not in STOP_WORDS]
         meaningful_normalized = [_normalize(t) for t in meaningful_raw]
-        
+
         print(f"🔤 [Search] Tokenisation: '{search_query}' → raw={meaningful_raw}, normalized={meaningful_normalized}", file=sys.stderr)
-        
+
         if not meaningful_raw:
-            print(f"⚠️ [Search] Aucun token significatif → résultat vide", file=sys.stderr)
+            print("⚠️ [Search] Aucun token significatif → résultat vide", file=sys.stderr)
             return []
-        
+
         # === Stratégie 1: Fulltext index (accent-insensitive, scoring Lucene) ===
         # Lazy init de l'index au premier appel
         if not self._fulltext_index_ready:
             await self.ensure_fulltext_index()
-        
+
         entities = await self._search_fulltext(memory_id, meaningful_raw, limit)
-        
+
         if entities:
             top3 = ", ".join(
                 e["name"] + "=" + str(e.get("score", 0))
@@ -846,15 +848,15 @@ class GraphService:
             print(f"✅ [Search] Fulltext: {len(entities)} résultats (scores: {top3}...)",
                   file=sys.stderr)
             return entities
-        
+
         # === Stratégie 2: CONTAINS fallback (raw + normalized tokens) ===
-        print(f"🔄 [Search] Fulltext: 0 résultats → fallback CONTAINS", file=sys.stderr)
+        print("🔄 [Search] Fulltext: 0 résultats → fallback CONTAINS", file=sys.stderr)
         entities = await self._search_contains(memory_id, meaningful_raw, meaningful_normalized, limit)
-        
+
         print(f"{'✅' if entities else '❌'} [Search] CONTAINS fallback: {len(entities)} résultats "
               f"(tokens: {list(set(meaningful_raw + meaningful_normalized))})", file=sys.stderr)
         return entities
-    
+
     async def get_entity_context(
         self,
         memory_id: str,
@@ -885,9 +887,9 @@ class GraphService:
                 name=entity_name,
                 memory_id=memory_id
             )
-            
+
             record = await result.single()
-            
+
             # Si pas trouvé, essayer une recherche tolérante (CONTAINS)
             if not record or not record["e"]:
                 result = await session.run(
@@ -904,7 +906,7 @@ class GraphService:
                     memory_id=memory_id
                 )
                 record = await result.single()
-            
+
             if not record or not record["e"]:
                 return GraphContext(
                     entity_name=entity_name,
@@ -913,13 +915,13 @@ class GraphService:
                     related_entities=[],
                     relations=[]
                 )
-            
+
             entity = record["e"]
             documents = [
                 {"id": d["id"], "filename": d["filename"], "uri": d["uri"]}
                 for d in record["docs"] if d
             ]
-            
+
             related_entities = []
             relations = []
             for item in record["related"]:
@@ -933,7 +935,7 @@ class GraphService:
                         "type": item["relation"]["type"],
                         "description": item["relation"].get("description")
                     })
-            
+
             return GraphContext(
                 entity_name=entity_name,
                 entity_type=entity.get("type"),
@@ -942,12 +944,12 @@ class GraphService:
                 related_entities=related_entities,
                 relations=relations
             )
-    
+
     # =========================================================================
     # Export du Graphe Complet
     # =========================================================================
-    
-    async def get_full_graph(self, memory_id: str) -> Dict[str, Any]:
+
+    async def get_full_graph(self, memory_id: str) -> dict[str, Any]:
         """
         Récupère le graphe complet d'une mémoire (entités + relations + documents).
         
@@ -970,7 +972,7 @@ class GraphService:
                 """,
                 memory_id=memory_id
             )
-            
+
             nodes = []
             node_ids = set()
             async for record in nodes_result:
@@ -985,7 +987,7 @@ class GraphService:
                     "node_type": "entity"
                 })
                 node_ids.add(node_id)
-            
+
             # Récupérer tous les documents avec leur URI S3 et métadonnées enrichies
             docs_result = await session.run(
                 """
@@ -1001,7 +1003,7 @@ class GraphService:
                 """,
                 memory_id=memory_id
             )
-            
+
             documents = []
             doc_ids = set()
             async for record in docs_result:
@@ -1029,7 +1031,7 @@ class GraphService:
                 content_type = record.get("content_type")
                 if content_type:
                     doc_entry["content_type"] = content_type
-                
+
                 documents.append(doc_entry)
                 # Ajouter les documents comme nœuds aussi (pour visualisation)
                 nodes.append({
@@ -1044,7 +1046,7 @@ class GraphService:
                 })
                 node_ids.add(doc_id)
                 doc_ids.add(record["id"])
-            
+
             # Récupérer les relations entité-entité
             edges_result = await session.run(
                 """
@@ -1054,7 +1056,7 @@ class GraphService:
                 """,
                 memory_id=memory_id
             )
-            
+
             edges = []
             async for record in edges_result:
                 source = record["source"]
@@ -1068,7 +1070,7 @@ class GraphService:
                         "description": record["description"] or "",
                         "weight": record["weight"] or 1.0
                     })
-            
+
             # Récupérer les relations document-entité (MENTIONS)
             mentions_result = await session.run(
                 """
@@ -1077,7 +1079,7 @@ class GraphService:
                 """,
                 memory_id=memory_id
             )
-            
+
             async for record in mentions_result:
                 doc_id = f"doc:{record['doc_id']}"
                 entity_name = record["entity_name"]
@@ -1090,18 +1092,18 @@ class GraphService:
                         "description": f"Mentioned {record['count']} times",
                         "weight": record["count"] or 1
                     })
-            
+
             return {
                 "nodes": nodes,
                 "edges": edges,
                 "documents": documents  # Liste séparée avec URIs S3
             }
-    
+
     # =========================================================================
     # Export / Import (Backup)
     # =========================================================================
-    
-    async def export_memory_data(self, memory_id: str) -> Dict[str, Any]:
+
+    async def export_memory_data(self, memory_id: str) -> dict[str, Any]:
         """
         Exporte toutes les données d'une mémoire pour backup.
         
@@ -1127,13 +1129,13 @@ class GraphService:
             mem_record = await mem_result.single()
             if not mem_record:
                 raise ValueError(f"Mémoire '{memory_id}' non trouvée")
-            
+
             memory_props = dict(mem_record["m"])
             # Convertir les types Neo4j en types sérialisables
             for k, v in memory_props.items():
                 if hasattr(v, 'to_native'):
                     memory_props[k] = v.to_native().isoformat()
-            
+
             # 2. Exporter les Documents
             docs_result = await session.run(
                 """
@@ -1150,7 +1152,7 @@ class GraphService:
                     if hasattr(v, 'to_native'):
                         props[k] = v.to_native().isoformat()
                 documents.append(props)
-            
+
             # 3. Exporter les Entities
             ents_result = await session.run(
                 """
@@ -1169,7 +1171,7 @@ class GraphService:
                     elif isinstance(v, list):
                         props[k] = list(v)  # Convertir les listes Neo4j
                 entities.append(props)
-            
+
             # 4. Exporter les relations RELATED_TO
             rels_result = await session.run(
                 """
@@ -1194,7 +1196,7 @@ class GraphService:
                 if record["created_at"] and hasattr(record["created_at"], 'to_native'):
                     rel["created_at"] = record["created_at"].to_native().isoformat()
                 relations.append(rel)
-            
+
             # 5. Exporter les relations MENTIONS
             ments_result = await session.run(
                 """
@@ -1210,11 +1212,11 @@ class GraphService:
                     "entity_name": record["entity_name"],
                     "count": record["count"]
                 })
-            
+
             print(f"📦 [Graph Export] {memory_id}: {len(documents)} docs, "
                   f"{len(entities)} entités, {len(relations)} relations, "
                   f"{len(mentions)} mentions", file=sys.stderr)
-            
+
             return {
                 "memory": memory_props,
                 "documents": documents,
@@ -1222,8 +1224,8 @@ class GraphService:
                 "relations": relations,
                 "mentions": mentions
             }
-    
-    async def import_memory_data(self, data: Dict[str, Any]) -> Dict[str, int]:
+
+    async def import_memory_data(self, data: dict[str, Any]) -> dict[str, int]:
         """
         Importe les données d'une mémoire depuis un backup.
         
@@ -1238,7 +1240,7 @@ class GraphService:
         """
         memory_props = data["memory"]
         memory_id = memory_props["id"]
-        
+
         # Vérifier que la mémoire n'existe pas
         existing = await self.get_memory(memory_id)
         if existing:
@@ -1246,7 +1248,7 @@ class GraphService:
                 f"La mémoire '{memory_id}' existe déjà. "
                 f"Supprimez-la d'abord avant de restaurer."
             )
-        
+
         counters = {
             "memory": 0,
             "documents": 0,
@@ -1254,7 +1256,7 @@ class GraphService:
             "relations": 0,
             "mentions": 0
         }
-        
+
         async with self.session() as session:
             # 1. Recréer le nœud Memory
             await session.run(
@@ -1280,7 +1282,7 @@ class GraphService:
                 created_at=memory_props.get("created_at", datetime.utcnow().isoformat())
             )
             counters["memory"] = 1
-            
+
             # 2. Recréer les Documents
             for doc in data.get("documents", []):
                 await session.run(
@@ -1314,7 +1316,7 @@ class GraphService:
                     content_type=doc.get("content_type", "")
                 )
                 counters["documents"] += 1
-            
+
             # 3. Recréer les Entities
             for entity in data.get("entities", []):
                 await session.run(
@@ -1340,7 +1342,7 @@ class GraphService:
                     updated_at=entity.get("updated_at", datetime.utcnow().isoformat())
                 )
                 counters["entities"] += 1
-            
+
             # 4. Recréer les relations RELATED_TO
             for rel in data.get("relations", []):
                 await session.run(
@@ -1363,7 +1365,7 @@ class GraphService:
                     source_doc=rel.get("source_doc")
                 )
                 counters["relations"] += 1
-            
+
             # 5. Recréer les relations MENTIONS
             for mention in data.get("mentions", []):
                 await session.run(
@@ -1378,14 +1380,14 @@ class GraphService:
                     count=mention.get("count", 1)
                 )
                 counters["mentions"] += 1
-        
+
         print(f"📥 [Graph Import] {memory_id}: {counters}", file=sys.stderr)
         return counters
-    
+
     # =========================================================================
     # Statistiques
     # =========================================================================
-    
+
     async def get_memory_stats(self, memory_id: str) -> MemoryStats:
         """Récupère les statistiques d'une mémoire."""
         async with self.session() as session:
@@ -1400,12 +1402,12 @@ class GraphService:
                 """,
                 memory_id=memory_id
             )
-            
+
             record = await result.single()
-            
+
             if not record:
                 return MemoryStats(memory_id=memory_id)
-            
+
             # Top entités
             top_result = await session.run(
                 """
@@ -1416,7 +1418,7 @@ class GraphService:
                 """,
                 memory_id=memory_id
             )
-            
+
             top_entities = []
             async for r in top_result:
                 top_entities.append({
@@ -1424,7 +1426,7 @@ class GraphService:
                     "type": r["type"],
                     "mentions": r["mentions"]
                 })
-            
+
             return MemoryStats(
                 memory_id=memory_id,
                 document_count=record["doc_count"],
@@ -1435,7 +1437,7 @@ class GraphService:
 
 
 # Singleton pour usage global
-_graph_service: Optional[GraphService] = None
+_graph_service: GraphService | None = None
 
 
 def get_graph_service() -> GraphService:

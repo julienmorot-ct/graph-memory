@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Outils MCP pour le service Memory.
 

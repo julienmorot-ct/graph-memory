@@ -29,6 +29,10 @@ wheels/
 .installed.cfg
 *.egg
 
+# === uv ===
+# uv.lock is COMMITTED (reproducible builds) — do NOT ignore it
+# .python-version is committed too (pins the Python version for uv)
+
 # === Virtual Environments ===
 venv/
 ENV/
@@ -48,6 +52,7 @@ htmlcov/
 .tox/
 .pytest_cache/
 .mypy_cache/
+.ruff_cache/
 
 # === macOS ===
 .DS_Store

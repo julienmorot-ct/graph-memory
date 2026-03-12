@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 MCP Memory Service
 ==================
@@ -12,7 +11,8 @@ Architecture:
 - LLMaaS pour l'extraction d'entités/relations
 
 Usage:
-    python -m src.mcp_memory.server --port 8002
+    mcp-memory --port 8002
+    # or: python -m mcp_memory.server --port 8002
 """
 
 __version__ = "1.4.0"

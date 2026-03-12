@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Modèles Pydantic pour MCP Memory.
 
@@ -6,10 +5,10 @@ Définit les structures de données utilisées dans tout le service.
 """
 
 from datetime import datetime
-from typing import Optional, List, Dict, Any
 from enum import Enum
-from pydantic import BaseModel, Field
+from typing import Any
 
+from pydantic import BaseModel, Field
 
 # =============================================================================
 # Enums
@@ -64,8 +63,8 @@ class ExtractedEntity(BaseModel):
     """
     name: str = Field(..., description="Nom de l'entité")
     type: str = Field(default="Other", description="Type d'entité (string libre, supporte les types d'ontologie)")
-    description: Optional[str] = Field(None, description="Description contextuelle")
-    aliases: List[str] = Field(default_factory=list, description="Noms alternatifs")
+    description: str | None = Field(None, description="Description contextuelle")
+    aliases: list[str] = Field(default_factory=list, description="Noms alternatifs")
 
 
 class ExtractedRelation(BaseModel):
@@ -73,19 +72,19 @@ class ExtractedRelation(BaseModel):
     from_entity: str = Field(..., description="Nom de l'entité source")
     to_entity: str = Field(..., description="Nom de l'entité cible")
     type: str = Field(default="RELATED_TO", description="Type de relation (string libre, supporte les types d'ontologie)")
-    description: Optional[str] = Field(None, description="Description de la relation")
+    description: str | None = Field(None, description="Description de la relation")
     weight: float = Field(default=1.0, ge=0.0, le=1.0, description="Force de la relation")
-    
+
     class Config:
         use_enum_values = True
 
 
 class ExtractionResult(BaseModel):
     """Résultat complet d'une extraction LLM."""
-    entities: List[ExtractedEntity] = Field(default_factory=list)
-    relations: List[ExtractedRelation] = Field(default_factory=list)
-    summary: Optional[str] = Field(None, description="Résumé du document")
-    key_topics: List[str] = Field(default_factory=list, description="Sujets principaux")
+    entities: list[ExtractedEntity] = Field(default_factory=list)
+    relations: list[ExtractedRelation] = Field(default_factory=list)
+    summary: str | None = Field(None, description="Résumé du document")
+    key_topics: list[str] = Field(default_factory=list, description="Sujets principaux")
 
 
 # =============================================================================
@@ -95,10 +94,10 @@ class ExtractionResult(BaseModel):
 class DocumentMetadata(BaseModel):
     """Métadonnées d'un document."""
     filename: str
-    content_type: Optional[str] = None
-    size_bytes: Optional[int] = None
-    source: Optional[str] = None  # Ex: "upload", "s3_sync"
-    custom: Dict[str, Any] = Field(default_factory=dict)
+    content_type: str | None = None
+    size_bytes: int | None = None
+    source: str | None = None  # Ex: "upload", "s3_sync"
+    custom: dict[str, Any] = Field(default_factory=dict)
 
 
 class Document(BaseModel):
@@ -122,11 +121,11 @@ class Memory(BaseModel):
     """Représentation d'une mémoire (namespace)."""
     id: str = Field(..., description="Identifiant unique de la mémoire")
     name: str = Field(..., description="Nom lisible")
-    description: Optional[str] = None
+    description: str | None = None
     ontology: str = Field(default="default", description="Nom de l'ontologie utilisée pour l'extraction")
-    ontology_uri: Optional[str] = Field(None, description="URI S3 de l'ontologie copiée")
+    ontology_uri: str | None = Field(None, description="URI S3 de l'ontologie copiée")
     created_at: datetime = Field(default_factory=datetime.utcnow)
-    owner_token: Optional[str] = Field(None, description="Token propriétaire")
+    owner_token: str | None = Field(None, description="Token propriétaire")
 
 
 class MemoryStats(BaseModel):
@@ -136,8 +135,8 @@ class MemoryStats(BaseModel):
     entity_count: int = 0
     relation_count: int = 0
     total_size_bytes: int = 0
-    last_ingestion: Optional[datetime] = None
-    top_entities: List[Dict[str, Any]] = Field(default_factory=list)
+    last_ingestion: datetime | None = None
+    top_entities: list[dict[str, Any]] = Field(default_factory=list)
 
 
 # =============================================================================
@@ -149,21 +148,21 @@ class SearchResult(BaseModel):
     query: str
     mode: SearchMode
     confidence: float = Field(ge=0.0, le=1.0)
-    entities: List[Dict[str, Any]] = Field(default_factory=list)
-    documents: List[Dict[str, Any]] = Field(default_factory=list)
-    relations: List[Dict[str, Any]] = Field(default_factory=list)
-    context: Optional[str] = Field(None, description="Contexte synthétisé")
+    entities: list[dict[str, Any]] = Field(default_factory=list)
+    documents: list[dict[str, Any]] = Field(default_factory=list)
+    relations: list[dict[str, Any]] = Field(default_factory=list)
+    context: str | None = Field(None, description="Contexte synthétisé")
     used_fallback: bool = Field(default=False, description="RAG vectoriel utilisé")
 
 
 class GraphContext(BaseModel):
     """Contexte d'une entité dans le graphe."""
     entity_name: str
-    entity_type: Optional[str] = None
+    entity_type: str | None = None
     depth: int = 1
-    documents: List[Dict[str, Any]] = Field(default_factory=list)
-    related_entities: List[Dict[str, Any]] = Field(default_factory=list)
-    relations: List[Dict[str, Any]] = Field(default_factory=list)
+    documents: list[dict[str, Any]] = Field(default_factory=list)
+    related_entities: list[dict[str, Any]] = Field(default_factory=list)
+    relations: list[dict[str, Any]] = Field(default_factory=list)
 
 
 # =============================================================================
@@ -181,17 +180,17 @@ class Chunk(BaseModel):
     text: str = Field(..., description="Contenu textuel du chunk")
     index: int = Field(..., description="Position du chunk dans le document (0-based)")
     total_chunks: int = Field(default=0, description="Nombre total de chunks du document")
-    
+
     # Métadonnées de provenance
-    doc_id: Optional[str] = Field(None, description="ID du document source")
-    memory_id: Optional[str] = Field(None, description="ID de la mémoire")
-    filename: Optional[str] = Field(None, description="Nom du fichier source")
-    
+    doc_id: str | None = Field(None, description="ID du document source")
+    memory_id: str | None = Field(None, description="ID de la mémoire")
+    filename: str | None = Field(None, description="Nom du fichier source")
+
     # Métadonnées sémantiques (détectées par le chunker)
-    section_title: Optional[str] = Field(None, description="Titre de la section englobante")
-    article_number: Optional[str] = Field(None, description="Numéro d'article (ex: '23.2')")
-    heading_hierarchy: List[str] = Field(default_factory=list, description="Hiérarchie de titres (ex: ['Titre III', 'Article 23'])")
-    
+    section_title: str | None = Field(None, description="Titre de la section englobante")
+    article_number: str | None = Field(None, description="Numéro d'article (ex: '23.2')")
+    heading_hierarchy: list[str] = Field(default_factory=list, description="Hiérarchie de titres (ex: ['Titre III', 'Article 23'])")
+
     # Statistiques
     char_count: int = Field(default=0, description="Nombre de caractères")
     token_estimate: int = Field(default=0, description="Estimation du nombre de tokens")
@@ -205,7 +204,7 @@ class ChunkResult(BaseModel):
     """
     chunk: Chunk
     score: float = Field(..., ge=0.0, le=1.0, description="Score de similarité cosinus")
-    
+
     # Contexte pour le prompt LLM
     @property
     def context_text(self) -> str:
@@ -230,18 +229,18 @@ class TokenInfo(BaseModel):
     """Information sur un token client."""
     token_hash: str = Field(..., description="Hash du token (pas le token lui-même)")
     client_name: str
-    email: Optional[str] = Field(None, description="Adresse email du propriétaire du token")
+    email: str | None = Field(None, description="Adresse email du propriétaire du token")
     created_at: datetime
-    expires_at: Optional[datetime] = None
-    permissions: List[str] = Field(default_factory=list)
+    expires_at: datetime | None = None
+    permissions: list[str] = Field(default_factory=list)
     is_active: bool = True
-    memory_ids: List[str] = Field(default_factory=list, description="Mémoires autorisées (vide = toutes)")
+    memory_ids: list[str] = Field(default_factory=list, description="Mémoires autorisées (vide = toutes)")
 
 
 class TokenCreateRequest(BaseModel):
     """Requête de création de token."""
     client_name: str
-    email: Optional[str] = Field(None, description="Adresse email du propriétaire")
-    permissions: List[str] = Field(default_factory=lambda: ["read", "write"])
-    memory_ids: List[str] = Field(default_factory=list)
-    expires_in_days: Optional[int] = None
+    email: str | None = Field(None, description="Adresse email du propriétaire")
+    permissions: list[str] = Field(default_factory=lambda: ["read", "write"])
+    memory_ids: list[str] = Field(default_factory=list)
+    expires_in_days: int | None = None

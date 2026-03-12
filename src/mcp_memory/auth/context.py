@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Auth Context - Propagation du contexte d'authentification.
 
@@ -15,15 +14,15 @@ Usage dans les outils:
 """
 
 import contextvars
-from typing import Optional, Dict, Any
+from typing import Any
 
 # ContextVar initialisé à None (pas d'auth = accès libre, cas localhost)
-current_auth: contextvars.ContextVar[Optional[Dict[str, Any]]] = contextvars.ContextVar(
+current_auth: contextvars.ContextVar[dict[str, Any] | None] = contextvars.ContextVar(
     'current_auth', default=None
 )
 
 
-def check_memory_access(memory_id: str) -> Optional[dict]:
+def check_memory_access(memory_id: str) -> dict | None:
     """
     Vérifie si le contexte d'auth actuel autorise l'accès à une mémoire.
     
@@ -40,24 +39,24 @@ def check_memory_access(memory_id: str) -> Optional[dict]:
         None si autorisé, dict d'erreur si refusé
     """
     auth = current_auth.get()
-    
+
     # Pas d'auth = accès libre (localhost, endpoints publics)
     if auth is None:
         return None
-    
+
     # Admin = accès total
     if "admin" in auth.get("permissions", []):
         return None
-    
+
     # Bootstrap key = accès total
     if auth.get("type") == "bootstrap":
         return None
-    
+
     # memory_ids vide = accès à toutes les mémoires
     memory_ids = auth.get("memory_ids", [])
     if not memory_ids:
         return None
-    
+
     # Vérifier que la mémoire est dans la liste autorisée
     if memory_id not in memory_ids:
         client = auth.get("client_name", "inconnu")
@@ -69,11 +68,11 @@ def check_memory_access(memory_id: str) -> Optional[dict]:
                 f"Mémoires autorisées: {memory_ids}"
             )
         }
-    
+
     return None  # Autorisé
 
 
-def check_admin_permission() -> Optional[dict]:
+def check_admin_permission() -> dict | None:
     """
     Vérifie si le contexte d'auth actuel a la permission admin.
     
@@ -87,19 +86,19 @@ def check_admin_permission() -> Optional[dict]:
         None si autorisé, dict d'erreur si refusé
     """
     auth = current_auth.get()
-    
+
     # Pas d'auth = accès libre (localhost)
     if auth is None:
         return None
-    
+
     # Bootstrap = admin
     if auth.get("type") == "bootstrap":
         return None
-    
+
     permissions = auth.get("permissions", [])
     if "admin" in permissions:
         return None
-    
+
     client = auth.get("client_name", "inconnu")
     return {
         "status": "error",
@@ -111,7 +110,7 @@ def check_admin_permission() -> Optional[dict]:
     }
 
 
-def get_allowed_memory_ids() -> Optional[list]:
+def get_allowed_memory_ids() -> list | None:
     """
     Retourne la liste des memory_ids autorisés pour le contexte d'auth actuel.
     
@@ -121,22 +120,22 @@ def get_allowed_memory_ids() -> Optional[list]:
         ["A", "B"] si restriction à des mémoires spécifiques
     """
     auth = current_auth.get()
-    
+
     # Pas d'auth = accès libre
     if auth is None:
         return None
-    
+
     # Admin ou bootstrap = accès total (pas de filtrage)
     if auth.get("type") == "bootstrap":
         return None
     if "admin" in auth.get("permissions", []):
         return None
-    
+
     # Retourner la liste (peut être [] = toutes)
     return auth.get("memory_ids", [])
 
 
-def check_write_permission() -> Optional[dict]:
+def check_write_permission() -> dict | None:
     """
     Vérifie si le contexte d'auth actuel a la permission d'écriture.
     
@@ -150,19 +149,19 @@ def check_write_permission() -> Optional[dict]:
         None si autorisé, dict d'erreur si refusé
     """
     auth = current_auth.get()
-    
+
     # Pas d'auth = accès libre (localhost)
     if auth is None:
         return None
-    
+
     # Admin ou bootstrap = accès total
     if auth.get("type") == "bootstrap":
         return None
-    
+
     permissions = auth.get("permissions", [])
     if "admin" in permissions or "write" in permissions:
         return None
-    
+
     client = auth.get("client_name", "inconnu")
     return {
         "status": "error",

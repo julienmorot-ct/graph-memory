@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 AuthMiddleware - Middleware ASGI pour l'authentification Bearer Token.
 
@@ -7,11 +6,9 @@ Vérifie le header Authorization et valide le token via TokenManager.
 
 import os
 import sys
-from typing import Optional
 
 from ..config import get_settings
 from .context import current_auth
-
 
 # NOTE: HostNormalizerMiddleware supprimé (migration SSE → Streamable HTTP).
 # L'ancien transport SSE nécessitait une normalisation du Host header pour les reverse
@@ -25,7 +22,7 @@ class AuthMiddleware:
     Vérifie le header `Authorization: Bearer <token>` et valide le token.
     Pour le bootstrap initial, accepte aussi ADMIN_BOOTSTRAP_KEY.
     """
-    
+
     def __init__(self, app, debug: bool = False):
         """
         Initialise le middleware.
@@ -38,7 +35,7 @@ class AuthMiddleware:
         self.debug = debug
         self._settings = get_settings()
         self._token_manager = None
-    
+
     @property
     def token_manager(self):
         """Lazy-load du TokenManager."""
@@ -46,23 +43,23 @@ class AuthMiddleware:
             from .token_manager import get_token_manager
             self._token_manager = get_token_manager()
         return self._token_manager
-    
+
     async def __call__(self, scope, receive, send):
         """Point d'entrée ASGI."""
         if scope["type"] != "http":
             # Passer directement pour WebSocket, lifespan, etc.
             await self.app(scope, receive, send)
             return
-        
+
         path = scope.get("path", "")
-        
+
         # Endpoints publics (pas d'auth requise)
         # Note: /api/ N'EST PLUS public — nécessite un token Bearer
         public_paths = ["/health", "/healthz", "/ready", "/graph", "/static/"]
         if any(path.startswith(p) for p in public_paths):
             await self.app(scope, receive, send)
             return
-        
+
         # Requêtes internes (localhost) : pas d'auth pour MCP/SSE
         # MAIS les endpoints /api/ exigent toujours un token (pour le client web)
         client = scope.get("client", ("", 0))
@@ -70,31 +67,31 @@ class AuthMiddleware:
         if client_ip in ("127.0.0.1", "::1") and not path.startswith("/api/"):
             await self.app(scope, receive, send)
             return
-        
+
         # Récupérer le header Authorization
         headers = dict(scope.get("headers", []))
         auth_header = headers.get(b"authorization", b"").decode("utf-8")
-        
+
         if not auth_header:
             if self.debug:
                 print(f"❌ [Auth] Header Authorization manquant pour {path}", file=sys.stderr)
             await self._send_error(send, 401, "Authorization header required")
             return
-        
+
         # Parser le Bearer token
         if not auth_header.startswith("Bearer "):
             if self.debug:
-                print(f"❌ [Auth] Format invalide (attendu: Bearer <token>)", file=sys.stderr)
+                print("❌ [Auth] Format invalide (attendu: Bearer <token>)", file=sys.stderr)
             await self._send_error(send, 401, "Invalid authorization format. Use: Bearer <token>")
             return
-        
+
         token = auth_header[7:]  # Retire "Bearer "
-        
+
         # Vérifier si c'est la clé bootstrap admin
         bootstrap_key = self._settings.admin_bootstrap_key
         if bootstrap_key and token == bootstrap_key:
             if self.debug:
-                print(f"✅ [Auth] Authentification avec clé bootstrap admin", file=sys.stderr)
+                print("✅ [Auth] Authentification avec clé bootstrap admin", file=sys.stderr)
             # Ajouter info d'auth au scope
             scope["auth"] = {
                 "type": "bootstrap",
@@ -106,20 +103,20 @@ class AuthMiddleware:
             current_auth.set(scope["auth"])
             await self.app(scope, receive, send)
             return
-        
+
         # Valider le token client
         try:
             token_info = await self.token_manager.validate_token(token)
-            
+
             if not token_info:
                 if self.debug:
-                    print(f"❌ [Auth] Token invalide ou expiré", file=sys.stderr)
+                    print("❌ [Auth] Token invalide ou expiré", file=sys.stderr)
                 await self._send_error(send, 401, "Invalid or expired token")
                 return
-            
+
             if self.debug:
                 print(f"✅ [Auth] Client '{token_info.client_name}' authentifié", file=sys.stderr)
-            
+
             # Ajouter info d'auth au scope
             scope["auth"] = {
                 "type": "token",
@@ -128,22 +125,22 @@ class AuthMiddleware:
                 "memory_ids": token_info.memory_ids,
                 "token_hash": token_info.token_hash
             }
-            
+
             # Propager le contexte d'auth pour les outils MCP
             current_auth.set(scope["auth"])
             await self.app(scope, receive, send)
-            
+
         except Exception as e:
             if self.debug:
                 print(f"❌ [Auth] Erreur validation: {e}", file=sys.stderr)
             await self._send_error(send, 500, "Authentication error")
-    
+
     async def _send_error(self, send, status: int, message: str):
         """Envoie une réponse d'erreur HTTP."""
         import json
-        
+
         body = json.dumps({"error": message}).encode()
-        
+
         await send({
             "type": "http.response.start",
             "status": status,
@@ -162,33 +159,33 @@ class LoggingMiddleware:
     """
     Middleware ASGI pour le logging des requêtes (mode debug).
     """
-    
+
     def __init__(self, app, debug: bool = False):
         self.app = app
         self.debug = debug
-    
+
     async def __call__(self, scope, receive, send):
         if not self.debug or scope["type"] != "http":
             await self.app(scope, receive, send)
             return
-        
+
         path = scope.get("path", "")
         method = scope.get("method", "?")
         query = scope.get("query_string", b"").decode()
-        
+
         full_path = f"{path}?{query}" if query else path
         print(f"📥 [HTTP] {method} {full_path}", file=sys.stderr)
-        
+
         # Wrapper pour logger la réponse
         status_code = [None]
-        
+
         async def send_wrapper(message):
             if message["type"] == "http.response.start":
                 status_code[0] = message.get("status")
             await send(message)
-        
+
         await self.app(scope, receive, send_wrapper)
-        
+
         if status_code[0]:
             emoji = "✅" if status_code[0] < 400 else "❌"
             print(f"{emoji} [HTTP] {method} {path} -> {status_code[0]}", file=sys.stderr)
@@ -203,7 +200,7 @@ class StaticFilesMiddleware:
     - GET /api/memories -> Liste des mémoires (JSON)
     - GET /api/graph/<memory_id> -> Graphe complet (JSON)
     """
-    
+
     def __init__(self, app):
         self.app = app
         self._static_dir = os.path.join(
@@ -212,7 +209,7 @@ class StaticFilesMiddleware:
         )
         self._graph_service = None
         self._extractor_service = None
-    
+
     @property
     def graph_service(self):
         """Lazy-load GraphService."""
@@ -220,7 +217,7 @@ class StaticFilesMiddleware:
             from ..core.graph import get_graph_service
             self._graph_service = get_graph_service()
         return self._graph_service
-    
+
     @property
     def extractor_service(self):
         """Lazy-load ExtractorService."""
@@ -228,20 +225,20 @@ class StaticFilesMiddleware:
             from ..core.extractor import get_extractor_service
             self._extractor_service = get_extractor_service()
         return self._extractor_service
-    
+
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
-        
+
         path = scope.get("path", "")
         method = scope.get("method", "GET")
-        
+
         # Page de visualisation
         if path == "/graph" or path == "/graph/":
             await self._serve_file(send, "graph.html", "text/html")
             return
-        
+
         # Fichiers statiques (CSS, JS)
         if path.startswith("/static/"):
             rel_path = path[len("/static/"):]
@@ -250,39 +247,39 @@ class StaticFilesMiddleware:
                 ct = self._guess_content_type(rel_path)
                 await self._serve_file(send, rel_path, ct)
                 return
-        
+
         # Health check
         if path in ("/health", "/healthz", "/ready"):
             await self._api_health(send)
             return
-        
+
         # API REST - Liste des mémoires
         if path == "/api/memories" and method == "GET":
             await self._api_memories(send)
             return
-        
+
         # API REST - Graphe d'une mémoire
         if path.startswith("/api/graph/") and method == "GET":
             memory_id = path[len("/api/graph/"):]
             if memory_id:
                 await self._api_graph(send, memory_id)
                 return
-        
+
         # API REST - Question/Réponse (POST)
         if path == "/api/ask" and method == "POST":
             body = await self._read_body(receive)
             await self._api_ask(send, body)
             return
-        
+
         # API REST - Query structuré (POST) — données brutes sans LLM
         if path == "/api/query" and method == "POST":
             body = await self._read_body(receive)
             await self._api_query(send, body)
             return
-        
+
         # Passer au handler suivant
         await self.app(scope, receive, send)
-    
+
     async def _read_body(self, receive) -> bytes:
         """Lit le corps complet d'une requête ASGI."""
         body = b""
@@ -292,7 +289,7 @@ class StaticFilesMiddleware:
             if not message.get("more_body", False):
                 break
         return body
-    
+
     def _read_version(self) -> str:
         """Lit la version depuis le fichier VERSION."""
         try:
@@ -310,7 +307,6 @@ class StaticFilesMiddleware:
 
     async def _api_health(self, send):
         """Retourne l'état de santé du serveur (format compact)."""
-        import json
         version = self._read_version()
         try:
             data = {
@@ -320,17 +316,16 @@ class StaticFilesMiddleware:
                 "transport": "streamable-http",
             }
             await self._send_json(send, data)
-        except Exception as e:
+        except Exception:
             await self._send_json(send, {
                 "status": "error",
                 "service": "graph-memory",
                 "version": version,
                 "transport": "streamable-http",
             }, 500)
-    
+
     async def _api_memories(self, send):
         """Retourne la liste des mémoires en JSON."""
-        import json
         try:
             memories = await self.graph_service.list_memories()
             data = {
@@ -351,10 +346,9 @@ class StaticFilesMiddleware:
             await self._send_json(send, data)
         except Exception as e:
             await self._send_json(send, {"status": "error", "message": str(e)}, 500)
-    
+
     async def _api_graph(self, send, memory_id: str):
         """Retourne le graphe complet d'une mémoire en JSON."""
-        import json
         try:
             graph_data = await self.graph_service.get_full_graph(memory_id)
             data = {
@@ -370,7 +364,7 @@ class StaticFilesMiddleware:
             await self._send_json(send, data)
         except Exception as e:
             await self._send_json(send, {"status": "error", "message": str(e)}, 500)
-    
+
     async def _api_ask(self, send, body: bytes):
         """
         Traite une question sur une mémoire et retourne la réponse.
@@ -385,25 +379,25 @@ class StaticFilesMiddleware:
             memory_id = payload.get("memory_id")
             question = payload.get("question")
             limit = payload.get("limit", 10)
-            
+
             if not memory_id or not question:
                 await self._send_json(send, {
                     "status": "error",
                     "message": "memory_id et question sont requis"
                 }, 400)
                 return
-            
+
             print(f"💬 [ASK] {memory_id}: {question}", file=sys.stderr)
-            
+
             # Appel direct à la fonction MCP (source unique de logique)
             from ..server import question_answer
             result = await question_answer(memory_id, question, limit)
-            
+
             # Retirer context_used de la réponse API (pas utile pour le front)
             result.pop("context_used", None)
-            
+
             await self._send_json(send, result)
-            
+
         except json.JSONDecodeError:
             await self._send_json(send, {
                 "status": "error",
@@ -415,7 +409,7 @@ class StaticFilesMiddleware:
                 "status": "error",
                 "message": str(e)
             }, 500)
-    
+
     async def _api_query(self, send, body: bytes):
         """
         Interroge une mémoire et retourne les données structurées (sans LLM).
@@ -430,21 +424,21 @@ class StaticFilesMiddleware:
             memory_id = payload.get("memory_id")
             query = payload.get("query")
             limit = payload.get("limit", 10)
-            
+
             if not memory_id or not query:
                 await self._send_json(send, {
                     "status": "error",
                     "message": "memory_id et query sont requis"
                 }, 400)
                 return
-            
+
             print(f"📊 [Query] {memory_id}: {query}", file=sys.stderr)
-            
+
             from ..server import memory_query
             result = await memory_query(memory_id, query, limit)
-            
+
             await self._send_json(send, result)
-            
+
         except json.JSONDecodeError:
             await self._send_json(send, {
                 "status": "error",
@@ -456,7 +450,7 @@ class StaticFilesMiddleware:
                 "status": "error",
                 "message": str(e)
             }, 500)
-    
+
     async def _send_json(self, send, data: dict, status: int = 200):
         """Envoie une réponse JSON."""
         import json
@@ -471,19 +465,19 @@ class StaticFilesMiddleware:
             ],
         })
         await send({"type": "http.response.body", "body": body})
-    
+
     async def _serve_file(self, send, filename: str, content_type: str):
         """Sert un fichier statique."""
         filepath = os.path.join(self._static_dir, filename)
-        
+
         if not os.path.exists(filepath):
             await self._send_404(send, f"File not found: {filename}")
             return
-        
+
         try:
             with open(filepath, "rb") as f:
                 body = f.read()
-            
+
             await send({
                 "type": "http.response.start",
                 "status": 200,
@@ -499,7 +493,7 @@ class StaticFilesMiddleware:
             })
         except Exception as e:
             await self._send_500(send, str(e))
-    
+
     async def _send_404(self, send, message: str):
         """Envoie une erreur 404."""
         body = f"<h1>404 Not Found</h1><p>{message}</p>".encode()
@@ -512,7 +506,7 @@ class StaticFilesMiddleware:
             ],
         })
         await send({"type": "http.response.body", "body": body})
-    
+
     async def _send_500(self, send, message: str):
         """Envoie une erreur 500."""
         body = f"<h1>500 Internal Server Error</h1><p>{message}</p>".encode()
@@ -525,7 +519,7 @@ class StaticFilesMiddleware:
             ],
         })
         await send({"type": "http.response.body", "body": body})
-    
+
     @staticmethod
     def _guess_content_type(filename: str) -> str:
         """Devine le content-type à partir de l'extension."""

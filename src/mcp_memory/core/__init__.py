@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 Core Services pour MCP Memory.
 
@@ -7,8 +6,8 @@ Core Services pour MCP Memory.
 - ExtractorService : Extraction via LLMaaS
 """
 
+from .extractor import ExtractorService
 from .graph import GraphService
 from .storage import StorageService
-from .extractor import ExtractorService
 
 __all__ = ["GraphService", "StorageService", "ExtractorService"]

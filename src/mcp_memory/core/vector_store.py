@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 VectorStoreService - Client Qdrant pour le stockage vectoriel (RAG).
 
@@ -12,7 +11,6 @@ Couplage strict avec Neo4j :
 """
 
 import sys
-from typing import Optional, List
 from uuid import uuid4
 
 from qdrant_client import QdrantClient
@@ -32,27 +30,27 @@ class VectorStoreService:
     et des métadonnées (doc_id, filename, section, article) pour permettre
     le filtrage graph-guided.
     """
-    
+
     def __init__(self):
         """Initialise le client Qdrant."""
         settings = get_settings()
-        
+
         self._client = QdrantClient(
             url=settings.qdrant_url,
             timeout=30
         )
         self._prefix = settings.qdrant_collection_prefix
         self._dimensions = settings.llmaas_embedding_dimensions
-    
+
     def _collection_name(self, memory_id: str) -> str:
         """Retourne le nom de collection Qdrant pour une mémoire."""
         safe_id = "".join(c if c.isalnum() else "_" for c in memory_id)
         return f"{self._prefix}{safe_id}"
-    
+
     # =========================================================================
     # Gestion des collections
     # =========================================================================
-    
+
     async def ensure_collection(self, memory_id: str) -> bool:
         """
         Crée la collection Qdrant si elle n'existe pas.
@@ -64,15 +62,15 @@ class VectorStoreService:
             True si la collection existait déjà, False si créée
         """
         name = self._collection_name(memory_id)
-        
+
         try:
             # Vérifier si la collection existe
             collections = self._client.get_collections().collections
             existing_names = [c.name for c in collections]
-            
+
             if name in existing_names:
                 return True
-            
+
             # Créer la collection
             self._client.create_collection(
                 collection_name=name,
@@ -81,7 +79,7 @@ class VectorStoreService:
                     distance=qmodels.Distance.COSINE
                 )
             )
-            
+
             # Créer les index de payload pour le filtrage
             self._client.create_payload_index(
                 collection_name=name,
@@ -93,14 +91,14 @@ class VectorStoreService:
                 field_name="memory_id",
                 field_schema=qmodels.PayloadSchemaType.KEYWORD
             )
-            
+
             print(f"📦 [Qdrant] Collection créée: {name} ({self._dimensions}d, cosine)", file=sys.stderr)
             return False
-            
+
         except Exception as e:
             print(f"❌ [Qdrant] Erreur création collection {name}: {e}", file=sys.stderr)
             raise
-    
+
     async def delete_collection(self, memory_id: str) -> bool:
         """
         Supprime toute la collection d'une mémoire.
@@ -114,7 +112,7 @@ class VectorStoreService:
             True si supprimée, False si n'existait pas
         """
         name = self._collection_name(memory_id)
-        
+
         try:
             self._client.delete_collection(collection_name=name)
             print(f"🗑️ [Qdrant] Collection supprimée: {name}", file=sys.stderr)
@@ -127,18 +125,18 @@ class VectorStoreService:
         except Exception as e:
             print(f"❌ [Qdrant] Erreur suppression collection {name}: {e}", file=sys.stderr)
             raise
-    
+
     # =========================================================================
     # Stockage des chunks
     # =========================================================================
-    
+
     async def store_chunks(
         self,
         memory_id: str,
         doc_id: str,
         filename: str,
-        chunks: List[Chunk],
-        embeddings: List[List[float]]
+        chunks: list[Chunk],
+        embeddings: list[list[float]]
     ) -> int:
         """
         Stocke les chunks d'un document avec leurs embeddings dans Qdrant.
@@ -159,17 +157,17 @@ class VectorStoreService:
         """
         if not chunks or not embeddings:
             return 0
-        
+
         if len(chunks) != len(embeddings):
             raise ValueError(f"Mismatch: {len(chunks)} chunks vs {len(embeddings)} embeddings")
-        
+
         name = self._collection_name(memory_id)
-        
+
         # Construire les points Qdrant
         points = []
         for chunk, embedding in zip(chunks, embeddings):
             point_id = str(uuid4())
-            
+
             payload = {
                 "memory_id": memory_id,
                 "doc_id": doc_id,
@@ -183,38 +181,38 @@ class VectorStoreService:
                 "char_count": chunk.char_count,
                 "token_estimate": chunk.token_estimate,
             }
-            
+
             points.append(qmodels.PointStruct(
                 id=point_id,
                 vector=embedding,
                 payload=payload
             ))
-        
+
         try:
             # Upsert par batch (Qdrant gère les gros batch en interne)
             self._client.upsert(
                 collection_name=name,
                 points=points
             )
-            
+
             print(f"📦 [Qdrant] {len(points)} chunks stockés pour {filename} (collection: {name})", file=sys.stderr)
             return len(points)
-            
+
         except Exception as e:
             print(f"❌ [Qdrant] Erreur stockage chunks: {e}", file=sys.stderr)
             raise
-    
+
     # =========================================================================
     # Recherche vectorielle
     # =========================================================================
-    
+
     async def search(
         self,
         memory_id: str,
-        query_embedding: List[float],
-        doc_ids: Optional[List[str]] = None,
+        query_embedding: list[float],
+        doc_ids: list[str] | None = None,
         limit: int = 5
-    ) -> List[ChunkResult]:
+    ) -> list[ChunkResult]:
         """
         Recherche vectorielle dans une mémoire, filtrable par documents.
         
@@ -232,7 +230,7 @@ class VectorStoreService:
             Liste de ChunkResult triés par score décroissant
         """
         name = self._collection_name(memory_id)
-        
+
         # Construire le filtre Qdrant
         query_filter = None
         if doc_ids:
@@ -244,7 +242,7 @@ class VectorStoreService:
                     )
                 ]
             )
-        
+
         try:
             results = self._client.query_points(
                 collection_name=name,
@@ -253,11 +251,11 @@ class VectorStoreService:
                 limit=limit,
                 with_payload=True
             )
-            
+
             chunk_results = []
             for point in results.points:
                 payload = point.payload or {}
-                
+
                 chunk = Chunk(
                     text=payload.get("text", ""),
                     index=payload.get("chunk_index", 0),
@@ -271,14 +269,14 @@ class VectorStoreService:
                     char_count=payload.get("char_count", 0),
                     token_estimate=payload.get("token_estimate", 0)
                 )
-                
+
                 chunk_results.append(ChunkResult(
                     chunk=chunk,
                     score=point.score
                 ))
-            
+
             return chunk_results
-            
+
         except UnexpectedResponse as e:
             if "404" in str(e) or "not found" in str(e).lower():
                 print(f"⚠️ [Qdrant] Collection {name} n'existe pas encore", file=sys.stderr)
@@ -287,11 +285,11 @@ class VectorStoreService:
         except Exception as e:
             print(f"❌ [Qdrant] Erreur recherche: {e}", file=sys.stderr)
             raise
-    
+
     # =========================================================================
     # Suppression
     # =========================================================================
-    
+
     async def delete_document_chunks(self, memory_id: str, doc_id: str) -> int:
         """
         Supprime tous les chunks d'un document spécifique.
@@ -306,7 +304,7 @@ class VectorStoreService:
             Nombre de chunks supprimés (estimé)
         """
         name = self._collection_name(memory_id)
-        
+
         try:
             # Compter les chunks avant suppression
             count_result = self._client.count(
@@ -321,10 +319,10 @@ class VectorStoreService:
                 )
             )
             count = count_result.count
-            
+
             if count == 0:
                 return 0
-            
+
             # Supprimer par filtre
             self._client.delete(
                 collection_name=name,
@@ -339,10 +337,10 @@ class VectorStoreService:
                     )
                 )
             )
-            
+
             print(f"🗑️ [Qdrant] {count} chunks supprimés pour doc {doc_id}", file=sys.stderr)
             return count
-            
+
         except UnexpectedResponse as e:
             if "404" in str(e) or "not found" in str(e).lower():
                 return 0
@@ -350,12 +348,12 @@ class VectorStoreService:
         except Exception as e:
             print(f"❌ [Qdrant] Erreur suppression chunks: {e}", file=sys.stderr)
             raise
-    
+
     # =========================================================================
     # Export / Import (Backup)
     # =========================================================================
-    
-    async def export_collection(self, memory_id: str) -> List[dict]:
+
+    async def export_collection(self, memory_id: str) -> list[dict]:
         """
         Exporte tous les points d'une collection Qdrant pour backup.
         
@@ -370,7 +368,7 @@ class VectorStoreService:
         """
         name = self._collection_name(memory_id)
         all_points = []
-        
+
         try:
             # Vérifier que la collection existe
             collections = self._client.get_collections().collections
@@ -378,11 +376,11 @@ class VectorStoreService:
             if name not in existing_names:
                 print(f"⚠️ [Qdrant Export] Collection {name} n'existe pas", file=sys.stderr)
                 return []
-            
+
             # Scroll pour récupérer tous les points par pages
             offset = None
             page_size = 100
-            
+
             while True:
                 scroll_result = self._client.scroll(
                     collection_name=name,
@@ -391,31 +389,31 @@ class VectorStoreService:
                     with_payload=True,
                     with_vectors=True,
                 )
-                
+
                 points, next_offset = scroll_result
-                
+
                 for point in points:
                     all_points.append({
                         "id": str(point.id),
                         "vector": list(point.vector) if point.vector else [],
                         "payload": dict(point.payload) if point.payload else {}
                     })
-                
+
                 if next_offset is None:
                     break
                 offset = next_offset
-            
+
             print(f"📦 [Qdrant Export] {name}: {len(all_points)} points exportés", file=sys.stderr)
             return all_points
-            
+
         except Exception as e:
             print(f"❌ [Qdrant Export] Erreur export {name}: {e}", file=sys.stderr)
             raise
-    
+
     async def import_collection(
         self,
         memory_id: str,
-        points_data: List[dict],
+        points_data: list[dict],
         batch_size: int = 100
     ) -> int:
         """
@@ -434,18 +432,18 @@ class VectorStoreService:
         """
         if not points_data:
             return 0
-        
+
         name = self._collection_name(memory_id)
-        
+
         # S'assurer que la collection existe
         await self.ensure_collection(memory_id)
-        
+
         # Construire et upsert par batches
         total_imported = 0
-        
+
         for i in range(0, len(points_data), batch_size):
             batch = points_data[i:i + batch_size]
-            
+
             points = []
             for p in batch:
                 points.append(qmodels.PointStruct(
@@ -453,41 +451,41 @@ class VectorStoreService:
                     vector=p["vector"],
                     payload=p.get("payload", {})
                 ))
-            
+
             self._client.upsert(
                 collection_name=name,
                 points=points
             )
             total_imported += len(points)
-        
+
         print(f"📥 [Qdrant Import] {name}: {total_imported} points importés", file=sys.stderr)
         return total_imported
-    
+
     # =========================================================================
     # Diagnostic
     # =========================================================================
-    
+
     async def test_connection(self) -> dict:
         """Teste la connexion à Qdrant."""
         try:
             collections = self._client.get_collections()
-            
+
             return {
                 "status": "ok",
                 "collections": len(collections.collections),
                 "message": f"Qdrant OK ({len(collections.collections)} collections)"
             }
-            
+
         except Exception as e:
             return {
                 "status": "error",
                 "message": f"Erreur Qdrant: {str(e)}"
             }
-    
-    async def get_collection_info(self, memory_id: str) -> Optional[dict]:
+
+    async def get_collection_info(self, memory_id: str) -> dict | None:
         """Retourne les infos d'une collection (nombre de chunks, etc.)."""
         name = self._collection_name(memory_id)
-        
+
         try:
             info = self._client.get_collection(collection_name=name)
             return {
@@ -503,7 +501,7 @@ class VectorStoreService:
 
 
 # Singleton pour usage global
-_vector_store: Optional[VectorStoreService] = None
+_vector_store: VectorStoreService | None = None
 
 
 def get_vector_store() -> VectorStoreService:
