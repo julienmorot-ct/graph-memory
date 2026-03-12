@@ -309,35 +309,23 @@ class StaticFilesMiddleware:
         return "unknown"
 
     async def _api_health(self, send):
-        """Retourne l'état de santé du serveur."""
+        """Retourne l'état de santé du serveur (format compact)."""
         import json
-        from datetime import datetime
         version = self._read_version()
         try:
-            # Test rapide Neo4j via une requête simple
-            neo4j_ok = False
-            neo4j_msg = "Non testé"
-            try:
-                test = await self.graph_service.test_connection()
-                neo4j_ok = test.get("status") == "ok"
-                neo4j_msg = test.get("message", "OK")
-            except Exception as e:
-                neo4j_msg = str(e)
-            
             data = {
-                "status": "healthy" if neo4j_ok else "degraded",
+                "status": "healthy",
+                "service": "graph-memory",
                 "version": version,
-                "timestamp": datetime.utcnow().isoformat(),
-                "services": {
-                    "neo4j": {"status": "ok" if neo4j_ok else "error", "message": neo4j_msg}
-                }
+                "transport": "streamable-http",
             }
             await self._send_json(send, data)
         except Exception as e:
             await self._send_json(send, {
                 "status": "error",
+                "service": "graph-memory",
                 "version": version,
-                "message": str(e)
+                "transport": "streamable-http",
             }, 500)
     
     async def _api_memories(self, send):

@@ -1,6 +1,6 @@
 # Cahier de Spécification Technique — Graph Memory
 
-> **Version** : 1.3.7 | **Date** : 21 février 2026
+> **Version** : 1.5.0 | **Date** : 11 mars 2026
 > **Auteur** : Christophe Lesur & Cloud Temple
 > **Repository** : https://github.com/chrlesur/graph-memory
 
@@ -44,7 +44,7 @@ Les systèmes RAG (Retrieval-Augmented Generation) traditionnels souffrent de li
 
 ### 1.2 La solution : Knowledge Graph as a Service
 
-**Graph Memory** est un service de mémoire à long terme pour agents IA, exposé via le protocole **MCP (Model Context Protocol)** sur HTTP/SSE. Il extrait des **entités** et **relations** structurées via un LLM, guidé par des **ontologies** métier, pour construire un graphe de connaissances interrogeable en langage naturel.
+**Graph Memory** est un service de mémoire à long terme pour agents IA, exposé via le protocole **MCP (Model Context Protocol)** sur **Streamable HTTP**. Il extrait des **entités** et **relations** structurées via un LLM, guidé par des **ontologies** métier, pour construire un graphe de connaissances interrogeable en langage naturel.
 
 ### 1.3 Objectifs principaux
 
@@ -65,9 +65,9 @@ Les systèmes RAG (Retrieval-Augmented Generation) traditionnels souffrent de li
 
 ### 1.5 Périmètre
 
-**Inclus (v1.3.7)** :
-- Serveur MCP HTTP/SSE (28 outils)
-- 5 ontologies (legal, cloud, managed-services, presales, general)
+**Inclus (v1.4.0)** :
+- Serveur MCP Streamable HTTP (28 outils)
+- 6 ontologies (legal, cloud, managed-services, presales, general, software-development)
 - Interface web interactive (graphe vis-network, panneau Q&A)
 - CLI complète (Click scriptable + Shell interactif)
 - Backup/Restore 3 couches (Neo4j + Qdrant + S3)
@@ -92,7 +92,7 @@ Graph Memory joue ce rôle d'**environnement partagé E** pour les agents IA :
 - **Neo4j** = base de connaissances structurée (entités, relations, documents)
 - **Qdrant** = base vectorielle pour le RAG
 - **S3** = stockage pérenne des documents originaux
-- **MCP SSE** = interface de messagerie standardisée
+- **MCP Streamable HTTP** = interface de messagerie standardisée (endpoint `/mcp`)
 
 Les agents (Cline, Claude Desktop, QuoteFlow, Vela) accèdent à cet environnement via le protocole MCP, conformément à la définition formelle : `y = m(o, E, x)`.
 
@@ -149,7 +149,7 @@ Le canal de collaboration `graph_push` entre Live Memory et Graph Memory est un 
 │                         Clients MCP                                  │
 │   (Claude Desktop, Cline, QuoteFlow, Vela, CLI, Interface Web)       │
 └──────────────────────────────┬───────────────────────────────────────┘
-                               │ HTTP/SSE + Bearer Token
+                               │ Streamable HTTP + Bearer Token
                                ▼
 ┌──────────────────────────────────────────────────────────────────────┐
 │              Coraza WAF (Port 8080 — seul port exposé)               │
@@ -162,11 +162,11 @@ Le canal de collaboration `graph_push` entre Live Memory et Graph Memory est un 
 │  ┌────────────────────────────────────────────────────────────────┐  │
 │  │  Middleware Layer (ASGI)                                       │  │
 │  │  AuthMiddleware → LoggingMiddleware → StaticFilesMiddleware    │  │
-│  │  → HostNormalizerMiddleware → mcp.sse_app()                    │  │
+│  │  → mcp.streamable_http_app()                                   │  │
 │  └────────────────────────────────────────────────────────────────┘  │
 │  ┌────────────────────────────────────────────────────────────────┐  │
 │  │  MCP Tools Layer (28 outils)                                   │  │
-│  │  • Memory CRUD (5)    • Documents (4)   • Recherche/Q&A (4)    │  │
+│  │  • Memory CRUD (4)    • Documents (4)   • Recherche/Q&A (4)    │  │
 │  │  • Ontologies (1)     • Storage S3 (2)  • Admin tokens (4)     │  │
 │  │  • Backup/Restore (6) • System (2)                             │  │
 │  └────────────────────────────────────────────────────────────────┘  │
@@ -195,7 +195,7 @@ Le canal de collaboration `graph_push` entre Live Memory et Graph Memory est un 
 | Composant       | Technologie                   | Version               |
 | --------------- | ----------------------------- | --------------------- |
 | Runtime         | Python                        | 3.11+                 |
-| MCP SDK         | `mcp` (FastMCP)               | ≥ 1.0.0               |
+| MCP SDK         | `mcp` (FastMCP)               | ≥ 1.8.0               |
 | Web Framework   | FastAPI + Starlette           | ≥ 0.100.0             |
 | ASGI Server     | Uvicorn                       | ≥ 0.20.0              |
 | Graph Database  | Neo4j Community               | 5.x                   |
@@ -246,11 +246,12 @@ Requête entrante
   ▼ AuthMiddleware        — Vérifie Bearer Token, injecte current_auth
   ▼ LoggingMiddleware     — Log requêtes (si debug=true)
   ▼ StaticFilesMiddleware — Sert /graph, /static/*, /api/* (routes web)
-  ▼ HostNormalizerMiddleware — Normalise Host header (reverse proxy)
-  ▼ mcp.sse_app()         — Routes MCP: /sse, /messages/*
+  ▼ mcp.streamable_http_app() — Route MCP: /mcp
 ```
 
-Les routes `/api/*` sont interceptées par `StaticFilesMiddleware` avant d'atteindre le SDK MCP. Les routes `/sse` et `/messages/*` traversent toute la pile jusqu'au MCP SDK (Starlette).
+Les routes `/api/*` sont interceptées par `StaticFilesMiddleware` avant d'atteindre le SDK MCP. La route `/mcp` traverse toute la pile jusqu'au MCP SDK (Starlette Streamable HTTP).
+
+> **Note** : Le `HostNormalizerMiddleware` (présent en v1.3.x pour contourner la validation DNS rebinding du SDK MCP en mode SSE) a été **supprimé** en v1.4.0 — Streamable HTTP n'a plus cette validation.
 
 ## 3. Modèle de données
 
@@ -272,29 +273,30 @@ Chaque mémoire (`memory_id`) crée un namespace isolé via des **labels préfix
 
 ### 3.2 Nœuds Neo4j
 
-| Label           | Propriétés                                                                                                                             | Description                             |
-| --------------- | -------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
-| `{ns}_Memory`   | `id`, `name`, `description`, `ontology`, `created_at`                                                                                  | Métadonnées de la mémoire               |
-| `{ns}_Document` | `uri`, `filename`, `hash`, `ingested_at`, `metadata`, `source_path`, `source_modified_at`, `size_bytes`, `text_length`, `content_type` | Document source + métadonnées enrichies |
-| `{ns}_Entity`   | `name`, `type`, `description`, `mention_count`, `source_docs`                                                                          | Entité extraite par le LLM              |
-| `{ns}_Chunk`    | `text`, `index`, `embedding`                                                                                                           | Fragment textuel (pour RAG vectoriel)   |
+| Label           | Propriétés                                                                                                                                          | Description                             |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| `{ns}_Memory`   | `id`, `name`, `description`, `ontology`, `ontology_uri`, `namespace`, `owner_token_hash`, `created_at`                                              | Métadonnées de la mémoire               |
+| `{ns}_Document` | `id`, `memory_id`, `uri`, `filename`, `hash`, `ingested_at`, `metadata_json`, `source_path`, `source_modified_at`, `size_bytes`, `text_length`, `content_type` | Document source + métadonnées enrichies |
+| `{ns}_Entity`   | `name`, `memory_id`, `type`, `description`, `source_docs`, `mention_count`, `created_at`, `updated_at`                                              | Entité extraite par le LLM              |
+
+> **Note** : Les chunks textuels ne sont **pas** stockés dans Neo4j. Ils sont stockés uniquement dans Qdrant (voir §3.5). Le graphe Neo4j contient les entités et relations structurées, tandis que Qdrant gère le RAG vectoriel.
 
 ### 3.3 Relations Neo4j
 
-| Type         | From → To          | Propriétés                      | Description                   |
-| ------------ | ------------------ | ------------------------------- | ----------------------------- |
-| `CONTAINS`   | Document → Chunk   | `index`                         | Document contient un chunk    |
-| `MENTIONS`   | Document → Entity  | `count`, `context`              | Document mentionne une entité |
-| `DEFINES`    | Document → Concept | —                               | Document définit un concept   |
-| `RELATED_TO` | Entity → Entity    | `type`, `weight`, `description` | Relation sémantique typée     |
+| Type           | From → To          | Propriétés                                   | Description                                    |
+| -------------- | ------------------ | -------------------------------------------- | ---------------------------------------------- |
+| `HAS_DOCUMENT` | Memory → Document  | —                                            | Lie la mémoire à ses documents                 |
+| `MENTIONS`     | Document → Entity  | `count`, `contexts`                          | Document mentionne une entité (avec contextes) |
+| `RELATED_TO`   | Entity → Entity    | `type`, `weight`, `description`, `source_doc` | Relation sémantique typée par l'ontologie      |
 
-> **Note** : Le type de relation `RELATED_TO` porte une propriété `type` qui contient le vrai type sémantique défini par l'ontologie (ex: `HAS_CERTIFICATION`, `COMPLIANT_WITH`, `IMPOSES`). Avec une bonne ontologie, aucun `RELATED_TO` générique ne devrait apparaître.
+> **Note** : Le type de relation `RELATED_TO` porte une propriété `type` qui contient le vrai type sémantique défini par l'ontologie (ex: `HAS_CERTIFICATION`, `COMPLIANT_WITH`, `IMPOSES`, `DEFINES`). Avec une bonne ontologie, aucun `RELATED_TO` générique ne devrait apparaître. La propriété `source_doc` permet de tracer le document d'origine de la relation.
 
 ### 3.4 Index et contraintes Neo4j
 
 ```cypher
--- Index fulltext accent-insensitive (Lucene standard-folding)
-CREATE FULLTEXT INDEX entity_fulltext FOR (e:Entity) ON EACH [e.name]
+-- Index fulltext accent-insensitive par namespace (Lucene standard-folding)
+-- Créé automatiquement à la création de chaque mémoire
+CREATE FULLTEXT INDEX {ns}_entity_fulltext FOR (e:{ns}_Entity) ON EACH [e.name]
 OPTIONS {indexConfig: {`fulltext.analyzer`: 'standard-folding'}}
 
 -- Recherche : "réversibilité", "reversibilite", "REVERSIBILITE" matchent tous
@@ -330,7 +332,7 @@ Chaque mémoire a sa propre collection Qdrant :
 
 ## 4. Outils MCP — 28 outils
 
-### 4.1 Gestion des mémoires (5 outils)
+### 4.1 Gestion des mémoires (4 outils)
 
 | Outil           | Paramètres                                      | Auth      | Description                                                 |
 | --------------- | ----------------------------------------------- | --------- | ----------------------------------------------------------- |
@@ -338,7 +340,8 @@ Chaque mémoire a sa propre collection Qdrant :
 | `memory_delete` | `memory_id`                                     | 🔑 write | Supprime tout : Neo4j + Qdrant + S3 (cascade)               |
 | `memory_list`   | —                                               | 🔑 read  | Liste les mémoires accessibles au token                     |
 | `memory_stats`  | `memory_id`                                     | 🔑 read  | Stats : docs, entités, relations, types                     |
-| `memory_graph`  | `memory_id`, `format?`                          | 🔑 read  | Graphe complet (nœuds, arêtes, documents)                   |
+
+> **Note** : Le graphe complet d'une mémoire est accessible via l'API REST `GET /api/graph/{id}` (voir §10.3), et non via un outil MCP.
 
 ### 4.2 Documents (4 outils)
 
@@ -620,13 +623,14 @@ L'ontologie est le **contrat** entre le développeur et le LLM : elle définit e
 
 | Ontologie          | Fichier                            | Entités  | Relations | Usage                                                     |
 | ------------------ | ---------------------------------- | -------- | --------- | --------------------------------------------------------- |
-| `legal`            | `ONTOLOGIES/legal.yaml`            | 22 types | 22 types  | Contrats, CGV, CGVU, documents juridiques                 |
-| `cloud`            | `ONTOLOGIES/cloud.yaml`            | 27 types | 19 types  | Infrastructure cloud, fiches produits, docs techniques    |
+| `legal`            | `ONTOLOGIES/legal.yaml`            | 19 types | 23 types  | Contrats, CGV, CGVU, documents juridiques                 |
+| `cloud`            | `ONTOLOGIES/cloud.yaml`            | 26 types | 19 types  | Infrastructure cloud, fiches produits, docs techniques    |
 | `managed-services` | `ONTOLOGIES/managed-services.yaml` | 20 types | 16 types  | Services managés, infogérance, MCO/MCS                    |
 | `presales`         | `ONTOLOGIES/presales.yaml`         | 28 types | 30 types  | Avant-vente, RFP/RFI, propositions commerciales           |
-| `general`          | `ONTOLOGIES/general.yaml`          | 28 types | 24 types  | Générique : FAQ, référentiels, certifications, RSE, specs |
+| `general`          | `ONTOLOGIES/general.yaml`          | 26 types | 24 types  | Générique : FAQ, référentiels, certifications, RSE, specs |
+| `software-development` | `ONTOLOGIES/software-development.yaml` | 21 types | 23 types  | Code source, architecture logicielle, APIs, patterns, infra |
 
-Toutes utilisent les limites d'extraction `max_entities: 60` / `max_relations: 80`.
+Les ontologies métier utilisent `max_entities: 60` / `max_relations: 80`. L'ontologie `software-development` utilise `max_entities: 160` / `max_relations: 240` (code source plus dense).
 
 ### 7.3 Format YAML d'une ontologie
 
@@ -647,14 +651,14 @@ entity_types:
     examples:
       - "Cloud Temple SAS"
       - "ANSSI"
-  # ... (22 types pour legal)
+  # ... (19 types pour legal)
 
 relation_types:
   - name: DEFINES
     description: Définit un concept ou une obligation
   - name: APPLIES_TO
     description: S'applique à une entité ou un secteur
-  # ... (22 types pour legal)
+  # ... (23 types pour legal)
 
 extraction_rules:
   max_entities: 60
@@ -727,7 +731,7 @@ Client → Header "Authorization: Bearer <token>" → AuthMiddleware → current
 **3 niveaux d'accès** :
 1. **Bootstrap** — Clé `ADMIN_BOOTSTRAP_KEY` dans le `.env` (accès total, pour créer le premier token)
 2. **Token client** — Créé via `admin_create_token`, avec permissions et mémoires autorisées
-3. **Localhost** — Requêtes depuis 127.0.0.1 exemptées d'authentification (MCP/SSE uniquement)
+3. **Localhost** — Requêtes depuis 127.0.0.1 exemptées d'authentification (MCP uniquement)
 
 ### 8.2 Structure d'un token
 
@@ -762,13 +766,13 @@ Règles :
 | ----------------- | ---------------------------------------------------------------------------------------------- |
 | **OWASP CRS**     | Injection SQL/XSS, path traversal, SSRF, scanners                                              |
 | **Headers**       | CSP, X-Frame-Options DENY, X-Content-Type-Options nosniff, Referrer-Policy, Permissions-Policy |
-| **Rate Limiting** | SSE: 10/min, Messages MCP: 60/min, API: 30/min, Global: 200/min                                |
+| **Rate Limiting** | MCP: 60/min, API: 30/min, Global: 200/min                                                      |
 | **TLS**           | Let's Encrypt automatique en production (`SITE_ADDRESS=domaine.com`)                           |
 
 **Routage intelligent** :
-- Routes SSE/MCP (`/sse*`, `/messages/*`) → reverse proxy direct (streaming incompatible avec WAF)
+- Route MCP (`/mcp*`) → reverse proxy direct (streaming SSE optionnel incompatible avec WAF)
 - Routes web (`/api/*`, `/graph`, `/static/*`) → WAF Coraza + OWASP CRS
-- Timeouts : SSE=∞, ingestion=1800s, API=300s
+- Timeouts : MCP=1800s (ingestion longue), API=300s
 
 ### 8.5 Sécurité Backup
 
@@ -829,15 +833,16 @@ _backups/{memory_id}/{timestamp}/
 ### 9.3 Format archive tar.gz (download)
 
 ```
-{memory_id}_{timestamp}.tar.gz
-├── manifest.json
-├── graph_data.json
-├── qdrant_vectors.jsonl
-├── document_keys.json
-└── documents/              # Optionnel (si --include-documents)
-    ├── contrat.docx
-    ├── guide.pdf
-    └── ...
+backup-{memory_id}-{timestamp}.tar.gz
+└── backup-{memory_id}-{timestamp}/
+    ├── manifest.json
+    ├── graph_data.json
+    ├── qdrant_vectors.jsonl
+    ├── document_keys.json
+    └── documents/              # Optionnel (si --include-documents)
+        ├── contrat.docx
+        ├── guide.pdf
+        └── ...
 ```
 
 ### 9.4 Principes
@@ -930,7 +935,7 @@ scripts/
 ├── mcp_cli.py              # Point d'entrée
 └── cli/
     ├── __init__.py          # Configuration (MCP_URL, MCP_TOKEN)
-    ├── client.py            # MCPClient HTTP/SSE (call_tool, on_progress)
+    ├── client.py            # MCPClient Streamable HTTP (call_tool, on_progress)
     ├── display.py           # Affichage Rich partagé (tables, panels, format_size)
     ├── ingest_progress.py   # Progression ingestion temps réel (Rich Live + SSE)
     ├── commands.py          # Commandes Click (scriptable)
@@ -993,7 +998,7 @@ Agents IA (Cline, Claude, ...)
 │  Live Memory            │  Notes temps réel → LLM → Memory Bank Markdown
 │  (mémoire de travail)   │  S3-only, pas de BDD
 └──────────┬──────────────┘
-           │ graph_push (MCP SSE)
+           │ graph_push (MCP Streamable HTTP)
            │ delete + re-ingest → recalcul du graphe
            ▼
 ┌──────────────────────────┐
@@ -1018,7 +1023,7 @@ Agents IA (Cline, Claude, ...)
 
 - Chaque `graph_push` supprime l'ancien document puis ré-ingère → recalcul complet
 - Réutilise `document_delete` (cascade) + `memory_ingest` avec `force=True`
-- Connexion via MCP SSE standard (même auth Bearer Token)
+- Connexion via MCP Streamable HTTP (même auth Bearer Token)
 
 **Référence** : Tran et al., 2025 — *Multi-Agent Collaboration Mechanisms* (arxiv:2501.06322)
 
@@ -1035,6 +1040,7 @@ Agents IA (Cline, Claude, ...)
 | `S3_ACCESS_KEY_ID`     | — (obligatoire)                              | Clé d'accès S3 |
 | `S3_SECRET_ACCESS_KEY` | — (obligatoire)                              | Secret S3      |
 | `S3_BUCKET_NAME`       | `quoteflow-memory`                           | Nom du bucket  |
+| `S3_REGION_NAME`       | `fr1`                                        | Région S3      |
 
 #### LLMaaS
 | Variable                      | Défaut                            | Description                        |
@@ -1053,6 +1059,7 @@ Agents IA (Cline, Claude, ...)
 | `NEO4J_URI`      | `bolt://neo4j:7687` | URI Neo4j    |
 | `NEO4J_USER`     | `neo4j`             | Utilisateur  |
 | `NEO4J_PASSWORD` | — (obligatoire)     | Mot de passe |
+| `NEO4J_DATABASE` | `neo4j`             | Base de données |
 
 #### Qdrant
 | Variable                   | Défaut               | Description             |
@@ -1081,6 +1088,7 @@ Agents IA (Cline, Claude, ...)
 | `MCP_SERVER_PORT`        | `8002`    | Port d'écoute                            |
 | `MCP_SERVER_HOST`        | `0.0.0.0` | Host (0.0.0.0 = désactive DNS rebinding) |
 | `MCP_SERVER_DEBUG`       | `false`   | Logs détaillés                           |
+| `MCP_SERVER_NAME`        | `graph-memory` | Nom du serveur MCP (affiché dans system_about) |
 | `ADMIN_BOOTSTRAP_KEY`    | —         | Clé pour créer le premier token          |
 | `BACKUP_RETENTION_COUNT` | `5`       | Backups conservés par mémoire            |
 
@@ -1126,7 +1134,7 @@ docker compose up -d mcp-memory
 {
   "mcpServers": {
     "graph-memory": {
-      "url": "http://localhost:8080/sse",
+      "url": "http://localhost:8080/mcp",
       "headers": {
         "Authorization": "Bearer VOTRE_TOKEN"
       }
@@ -1157,17 +1165,18 @@ graph-memory/
 │   └── Caddyfile             # Config OWASP CRS + routes + TLS
 │
 ├── ONTOLOGIES/               # Ontologies d'extraction
-│   ├── legal.yaml            # 22 entités / 22 relations
-│   ├── cloud.yaml            # 27 entités / 19 relations (v1.2)
+│   ├── legal.yaml            # 19 entités / 23 relations
+│   ├── cloud.yaml            # 26 entités / 19 relations (v1.2)
 │   ├── managed-services.yaml # 20 entités / 16 relations
-│   ├── presales.yaml         # 28 entités / 30 relations
-│   └── general.yaml          # 28 entités / 24 relations (v1.1)
+│   ├── presales.yaml         # 28 entités / 30 relations (v1.1)
+│   ├── general.yaml          # 26 entités / 24 relations (v1.1)
+│   └── software-development.yaml # 21 entités / 23 relations (v1.2)
 │
 ├── scripts/                  # CLI et utilitaires
 │   ├── mcp_cli.py            # Point d'entrée CLI
 │   └── cli/                  # Package CLI
 │       ├── __init__.py       # Config (MCP_URL, MCP_TOKEN)
-│       ├── client.py         # MCPClient HTTP/SSE
+│       ├── client.py         # MCPClient Streamable HTTP
 │       ├── commands.py       # Commandes Click
 │       ├── display.py        # Affichage Rich partagé
 │       ├── ingest_progress.py # Progression temps réel
@@ -1195,6 +1204,7 @@ graph-memory/
     └── static/               # Interface web
         ├── graph.html
         ├── css/graph.css
+        ├── img/logo-cloudtemple.svg
         └── js/ (6 fichiers)
 ```
 
@@ -1222,5 +1232,5 @@ graph-memory/
 
 ---
 
-*Graph Memory v1.3.7 — Cahier de Spécification — 21 février 2026*
+*Graph Memory v1.5.0 — Cahier de Spécification — 11 mars 2026*
 *Développé par Cloud Temple — https://www.cloud-temple.com*

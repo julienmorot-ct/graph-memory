@@ -66,88 +66,9 @@ Développé par **[Cloud Temple](https://www.cloud-temple.com)**.
 
 ## 📋 Changelog
 
-> Historique complet : voir [CHANGELOG.md](CHANGELOG.md)
+Voir **[CHANGELOG.md](CHANGELOG.md)** pour l'historique complet des versions (v0.5.0 → v1.6.0).
 
-### v1.4.0 — 3 avril 2026 — 🔄 Migration SSE → Streamable HTTP
-- 🔄 **Migration complète SSE → Streamable HTTP** — Endpoint unique `/mcp` remplaçant `/sse` + `/messages`. `mcp>=1.8.0` requis.
-- 🔧 **WAF mis à jour** — Route unique `/mcp*`, rate limiting ajusté (200 req/min MCP, 500 global)
-- 🐳 **Dockerfile corrigé** — `COPY VERSION .`, healthcheck sur `/health`
-- 🧪 **Test end-to-end officiel** — `scripts/test_service.py` — 27 tests, 9 catégories, nettoyage auto
-- 📖 **Guide de migration** — `DESIGN/MIGRATION_STREAMABLE_HTTP.md`
-- ❌ **`HostNormalizerMiddleware` supprimé** — Plus nécessaire avec Streamable HTTP
-
-### v1.3.7 — 19 février 2026 — 🧠 Ontologie general.yaml v1.1
-- 🧠 **general.yaml v1.1** — +4 entités (LegalProvision, Sector, Sanction, Stakeholder), +2 relations (APPLIES_TO, IMPOSES), ~50 lignes `special_instructions` anti-"Other" pour REFERENTIEL
-
-### v1.3.6 — 18 février 2026 — 🧠 Qualité ontologies + Ontologie general + CLI Répertoire
-- 📚 **Nouvelle ontologie `general` v1.0** — 24 entités / 22 relations, filet de sécurité universel pour FAQ, certifications, RSE, specs produits, knowledge bases
-- 🧠 **cloud.yaml v1.2** — +2 types (Role, SLALevel), 12 mappings obligatoires, 8 catégories d'exclusion → **0 "Other"** sur 4 documents test (vs 9-12 avant)
-- 📋 **presales.yaml v1.1** — mapping MonetaryAmount/Duration
-- 🧹 **Suppression `technical.yaml`** — Redondante avec `general` qui couvre un spectre plus large
-- 🖥️ **CLI `docs`** — Nouvelle colonne "Répertoire" affichant le dossier source de chaque fichier (partagée CLI Click / Shell)
-
-### v1.3.5 — 18 février 2026 — 🧠 system_about + Starter Kit
-- 🧠 **Nouvel outil `system_about`** — Carte d'identité complète du service (identité, capacités, mémoires, services, config)
-- 🧰 **Starter Kit développeur** — Guide + boilerplate pour ajouter un nouvel outil MCP
-- 🐛 **Robustification `client.py`** — Gestion `isError`, réponse vide, réponse non-JSON
-
-### v1.3.4 — 18 février 2026 — 📊 Progression ingestdir + Fix --exclude
-- 📊 **Progression temps réel par fichier** dans `ingestdir` (barres ASCII, compteurs, timer)
-- 🐛 **Fix parser `--exclude` dans le shell** — Réécriture avec `shlex.split()` (3 bugs corrigés)
-
-### v1.3.3 — 18 février 2026 — ☁️ Ontologie cloud.yaml v1.1
-- ☁️ **Ontologie cloud v1.1** — +4 entités (PricingModel, StorageClass, BackupSolution, AIModel) + 5 relations (COMPATIBLE_WITH, SUPPORTS, PART_OF, DEPENDS_ON, HAS_PRICING). 24 entités / 19 relations au total.
-- ✅ **Validé sur 2 fiches produits** — 73 entités extraites, 97.3% correctement typées (2 "Other" sur 73)
-- 🧹 Suppression du script utilitaire `validate_ontology.py`
-
-### v1.3.0 — 17 février 2026 — 🧠 Ontologie Presales + Uniformisation des limites
-- ✨ **Nouvelle ontologie `presales`** — 28 types d'entités (6 familles) + 30 types de relations (5 familles) pour l'analyse de documents avant-vente (RFP, RFI, propositions commerciales, études de cas)
-- 📐 **Uniformisation des limites d'extraction** — Toutes les ontologies passent à `max_entities: 60` / `max_relations: 80` (précédemment 30/40 par défaut, ou 50/60 pour certaines)
-- 🔧 **Défauts Python alignés** — `ExtractionRules` dans `ontology.py` : max_entities 30→60, max_relations 40→80
-
-### v1.2.4 — 17 février 2026 — 🔧 Factorisation CLI Click / Shell
-- 🔧 **Code unifié** — `commands.py` (Click) et `shell.py` (Interactif) partagent désormais la même logique d'affichage et de progression (`ingest_progress.py`, `display.py`).
-- 📊 **Progression ingestion unifiée** — Le shell interactif bénéficie des barres de progression riches et du parsing SSE temps réel (alignement v1.2.3).
-- 🧹 **Nettoyage** — ~300 lignes de duplication supprimées, maintenance simplifiée.
-
-### v1.2.2 — 17 février 2026 — 🔀 Fix HTTP 421 (reverse proxy)
-- 🔀 **Fix HTTP 421 "Invalid Host header"** — Le SDK MCP v1.26+ activait une protection DNS rebinding qui rejetait les requêtes derrière un reverse proxy. Fix : `FastMCP(host="0.0.0.0")` + `HostNormalizerMiddleware` comme ceinture de sécurité
-- 🐛 **Meilleur reporting d'erreur client** — `_extract_root_cause()` extrait le vrai message des TaskGroup/ExceptionGroup
-
-### v1.2.1 — 17 février 2026 — 🐛 Fix CLI production
-- 🐛 **Fix CLI 401 sur serveur distant** — Variables `MCP_URL` / `MCP_TOKEN` prioritaires pour piloter un serveur de production sans conflit avec le `.env` local dev
-- 📖 **Documentation CLI production** — Guide complet pour utiliser la CLI depuis un poste distant (`scripts/README.md`, `DESIGN/DEPLOIEMENT_PRODUCTION.md` §15)
-
-### v1.2.0 — 16 février 2026 — 💾 Backup / Restore complet
-- 💾 **Système de Backup/Restore** — 7 outils MCP : `backup_create`, `backup_list`, `backup_restore`, `backup_download`, `backup_delete`, `backup_restore_archive`
-- 📦 **Restore depuis archive tar.gz** — Cycle complet : backup → download → suppression serveur → restore depuis fichier local (avec re-upload S3 des documents)
-- 🐛 **Fix `storage_check`** — Faux-positifs orphelins corrigés (exclusion `_backups/`, scope multi-mémoires)
-- 🔧 **CLI backup complète** — 6 commandes Click + shell interactif
-
-### v1.1.0 — 16 février 2026 — 🔒 Rate Limiting + Analyse de Risques
-- 🔒 **Rate Limiting WAF** — 4 zones par IP (`caddy-ratelimit`) : SSE 10/min, messages 60/min, API 30/min, global 200/min
-- 📋 **Analyse de Risques Sécurité** — Matrice par route, conformité OWASP Top 10/SecNumCloud/RGPD
-
-### v1.0.0 — 16 février 2026 — 🎉 Production Ready
-- 🔒 **Coraza WAF** — Image custom (`xcaddy` + `coraza-caddy/v2`), OWASP CRS, seul port exposé (8080)
-- � **Architecture réseau durcie** — Neo4j/Qdrant/MCP internes, container non-root
-- 🔒 **TLS Let's Encrypt natif** — `SITE_ADDRESS` pour basculer dev/prod
-- 🔒 **Headers de sécurité** — CSP, X-Frame-Options DENY, nosniff, Referrer-Policy, Permissions-Policy
-- ⚡ **Routage WAF intelligent** — SSE/messages sans WAF (streaming), routes web avec WAF
-- �🔧 **CLI sur port 8080** — Passe désormais par le WAF
-
-### v0.6.5 — 16 février 2026 — Tool memory_query + Option --json CLI
-- ✨ **Tool MCP `memory_query`** — Interrogation structurée sans LLM (données brutes pour agents IA)
-- ✨ **Option `--json` globale** — Sur 10 commandes de consultation
-
-### v0.6.4 — 16 février 2026 — Panneau ASK amélioré
-### v0.6.3 — 15 février 2026 — Recherche accent-insensitive + Calibrage RAG
-### v0.6.2 — 15 février 2026 — Interface web + Progression CLI
-### v0.6.1 — 15 février 2026 — Stabilisation ingestion gros documents
-### v0.6.0 — 13 février 2026 — Chunked Graph Extraction + Métadonnées
-### v0.5.2 — 9 février 2026 — Q&A Fallback RAG-only + Tokeniser robuste
-### v0.5.1 — 9 février 2026 — Tokens email + hash complet
-### v0.5.0 — Février 2026 — Version initiale publique
+**Dernière version** : v1.6.0 (11 mars 2026) — Isolation multi-tenant durcie (14 failles corrigées), promotion admin déléguée, recette complète 119 tests.
 
 ---
 
@@ -206,7 +127,7 @@ Question en langage naturel
 ## ✨ Fonctionnalités
 
 ### Extraction intelligente
-- Extraction d'entités et relations guidée par **ontologie** (types d'entités/relations prédéfinis)
+- Extraction d'entités et relations guidée par **ontologie** (6 ontologies : legal, cloud, managed-services, presales, general, software-development)
 - Support des formats : **PDF, DOCX, Markdown, TXT, HTML, CSV**
 - Déduplication par hash SHA-256 (avec option `--force` pour ré-ingérer)
 - Instructions anti-hub pour éviter les entités trop génériques
@@ -236,8 +157,11 @@ Question en langage naturel
 
 ### Sécurité
 - Authentification Bearer Token pour toutes les requêtes MCP
-- Clé bootstrap pour le premier token
+- Clé bootstrap pour le premier token + **promotion admin déléguée** (v1.6.0)
+- **Isolation multi-tenant durcie** (v1.6.0) : chaque token ne voit/modifie que ses mémoires autorisées
 - Isolation des données par mémoire (namespace Neo4j)
+- **14 contrôles d'accès** sur les 28 outils MCP (access, write, admin)
+- **Recette automatisée** : 119 tests × 3 profils (admin, read/write, read-only)
 
 ---
 
@@ -807,7 +731,8 @@ graph-memory/
 │
 ├── scripts/                  # CLI et utilitaires
 │   ├── mcp_cli.py            # Point d'entrée CLI (Click + Shell)
-│   ├── test_service.py       # Test end-to-end officiel (27 tests, 9 catégories)
+│   ├── test_recette.py       # Recette complète (119 tests, 7 phases, 3 profils)
+│   ├── tests/                # Modules de test modulaires (7 fichiers)
 │   ├── README.md             # Documentation CLI
 │   ├── view_graph.py         # Visualisation graphe en terminal
 │   └── cli/                  # Package CLI
@@ -960,4 +885,4 @@ Développé par **[Cloud Temple](https://www.cloud-temple.com)**.
 
 ---
 
-*Graph Memory v1.4.0 — Avril 2026*
+*Graph Memory v1.6.0 — Mars 2026*

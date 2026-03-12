@@ -2,12 +2,30 @@
 
 ## Ce qui fonctionne ✅
 
-### Migration Streamable HTTP (branche dev/streamable-http — 2026-04-03)
-- **Transport MCP** : SSE → Streamable HTTP (`mcp.streamable_http_app()`, endpoint `/mcp`)
-- **Client CLI** : `streamablehttp_client` (SDK MCP ≥1.8.0)
-- **WAF** : route unique `/mcp*` (remplace `/sse*` + `/messages/*`)
-- **Rate limiting** : 200 req/min MCP, 500 global (×3 car Streamable HTTP = 3 req/appel)
-- **HostNormalizerMiddleware** supprimé (plus nécessaire)
+### Isolation multi-tenant v1.6.0 (2026-03-11)
+- **14 failles de sécurité corrigées** — audit complet du système d'authentification et d'isolation
+- **Contrôles d'accès sur 28 outils MCP** : `check_memory_access()`, `check_write_permission()`, `check_admin_permission()` appliqués systématiquement
+- **Filtrage multi-tenant** : `memory_list`, `backup_list` filtrés par `memory_ids` du token ; `document_list`, `document_get` protégés
+- **Outils admin protégés** : `admin_create_token`, `admin_list_tokens`, `admin_revoke_token`, `admin_update_token` → `check_admin_permission()` requis
+- **Promotion admin déléguée** : `update_token_permissions()` + `set_permissions` dans `admin_update_token` ; chaîne de confiance bootstrap → admin délégué → sous-tokens
+- **Auto-ajout au token** : `memory_create` ajoute automatiquement la mémoire aux `memory_ids` du token créateur
+- **Recette complète** : `scripts/test_recette.py` — 119 tests, 7 phases, 7 modules, 3 profils (admin, read/write, read-only) — **119/119 PASS en 31s**
+- **Scripts nettoyés** : 7 scripts obsolètes supprimés (analyze_*.py, test_ontology.py, test_service.py, view_graph.py, ingest_quoteflow.*)
+- **Documentation mise à jour** : CHANGELOG, README (fr+en), scripts/README (fr+en), memory bank
+
+### Ontologie software-development v1.2 (2026-03-11)
+- **Nouvelle ontologie `software-development`** pour l'ingestion de code source — 21 types d'entités + 23 types de relations
+- **Types d'entités** : Package, Module, Layer, Class, Function, Middleware, DataModel, Enum, MCPTool, APIEndpoint, Protocol, ExternalService, Dependency, ConfigParameter, DesignPattern, Algorithm, TestCase, Documentation, Feature, InfraComponent, SecurityBoundary
+- **Relations v1.1** : +UPDATES, +READS (mutations et lectures de données)
+- **Relations v1.2** : +PROTECTS, +ROUTES_TO (sécurité et infra)
+- **Règles avancées** : nommage canonique (fusion cross-docs), 12 mappings obligatoires (EXECUTES→CALLS, etc.), connectivité minimum ≥2, anti-hub (max 30/Class), zéro "Other"
+- **Script d'audit** : `scripts/audit_ontology.py` — analyse conformité types, orphelins, hubs, fusion cross-docs, nommage
+- **Script d'ingestion en masse** : `scripts/ingest_quoteflow.sh` — 189 fichiers (backend + auth + frontend)
+- **Test QuoteFlow** : 965 entités, 910 relations, 99% conformité entités, 95% conformité relations
+- **Couverture SPECIFICATION.md** : ~95% (code + infra + sécurité)
+- **VERSION** bumpé 1.4.1 → 1.5.0, documentation complète mise à jour
+
+### Descriptions paramètres MCP + Health compact (202
 - **Dockerfile** : `COPY VERSION .` + healthcheck `/health`
 - **/health** : version lue dynamiquement depuis fichier `VERSION` (pas hardcodée)
 - **README.en.md** : version anglaise du README

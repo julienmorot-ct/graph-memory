@@ -12,6 +12,14 @@ Built by **[Cloud Temple](https://www.cloud-temple.com)**.
 
 ---
 
+## 📋 Changelog
+
+See **[CHANGELOG.md](CHANGELOG.md)** for the full version history (v0.5.0 → v1.6.0).
+
+**Latest**: v1.6.0 (March 11, 2026) — Hardened multi-tenant isolation (14 security fixes), delegated admin promotion, comprehensive 119-test acceptance suite.
+
+---
+
 ## 🎯 Concept
 
 **Graph-First approach**: instead of classic vector RAG (embedding → cosine similarity), this service extracts **entities** and **relations** via an LLM to build a queryable knowledge graph.
@@ -44,13 +52,13 @@ Question (natural language)
 ## ✨ Features
 
 - **28 MCP tools** exposed via Streamable HTTP (`/mcp` endpoint)
-- **Ontology-guided extraction** — 5 built-in ontologies (legal, cloud, managed-services, presales, general)
+- **Ontology-guided extraction** — 6 built-in ontologies (legal, cloud, managed-services, presales, general, software-development)
 - **Graph-Guided RAG** — graph identifies relevant docs, then Qdrant searches chunks *within* those docs
 - **Interactive web UI** — vis-network graph visualization, filtering, ASK panel with Markdown rendering
 - **Complete CLI** — Click (scriptable) + interactive shell with autocompletion
 - **Backup/Restore** — full 3-layer backup (Neo4j + Qdrant + S3) with tar.gz archive support
 - **Multi-tenant** — namespace isolation per memory in Neo4j
-- **Security** — Coraza WAF, Bearer Token auth, rate limiting, non-root container, isolated Docker network
+- **Security** — Coraza WAF, Bearer Token auth, **hardened multi-tenant isolation** (v1.6.0), admin delegation, rate limiting, non-root container, isolated Docker network, **119 automated tests**
 - **Formats** — PDF, DOCX, Markdown, TXT, HTML, CSV
 
 ---

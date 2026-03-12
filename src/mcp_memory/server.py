@@ -11,10 +11,11 @@ import json
 import uuid
 import base64
 import argparse
-from typing import Optional, List, Dict, Any
+from typing import Annotated, Optional, List, Dict, Any
 
 import uvicorn
 from dotenv import load_dotenv
+from pydantic import Field
 
 # Charger .env avant les imports qui en dépendent
 load_dotenv()
@@ -23,7 +24,7 @@ from mcp.server.fastmcp import FastMCP, Context
 
 from .config import get_settings
 from .auth.middleware import AuthMiddleware, LoggingMiddleware, StaticFilesMiddleware
-from .auth.context import check_memory_access, check_write_permission, current_auth
+from .auth.context import check_memory_access, check_write_permission, check_admin_permission, get_allowed_memory_ids, current_auth
 
 
 # =============================================================================
@@ -134,10 +135,10 @@ def get_backup():
 
 @mcp.tool()
 async def memory_create(
-    memory_id: str,
-    name: str,
-    ontology: str,
-    description: Optional[str] = None
+    memory_id: Annotated[str, Field(description="Identifiant unique de la mémoire (ex: 'quoteflow-legal')")],
+    name: Annotated[str, Field(description="Nom lisible de la mémoire")],
+    ontology: Annotated[str, Field(description="Nom de l'ontologie à utiliser (ex: legal, cloud, managed-services, technical, presales)")],
+    description: Annotated[Optional[str], Field(default=None, description="Description optionnelle de la mémoire")] = None
 ) -> dict:
     """
     Crée une nouvelle mémoire (namespace isolé).
@@ -154,10 +155,33 @@ async def memory_create(
         Informations sur la mémoire créée
     """
     try:
-        # Vérifier l'accès à la mémoire
-        access_err = check_memory_access(memory_id)
-        if access_err:
-            return access_err
+        # Vérifier la permission d'écriture
+        write_err = check_write_permission()
+        if write_err:
+            return write_err
+        
+        # Pour memory_create, on vérifie l'accès SAUF si le token a des memory_ids
+        # restreints et que la nouvelle mémoire n'y est pas encore (elle sera auto-ajoutée)
+        auth = current_auth.get()
+        _auto_add_to_token = False
+        if auth and auth.get("type") == "token":
+            allowed = auth.get("memory_ids", [])
+            if allowed and memory_id not in allowed:
+                # Token restreint, la mémoire n'est pas dans la liste
+                # → On autorise la création et on l'ajoutera automatiquement au token
+                _auto_add_to_token = True
+                print(f"🔑 [Auth] memory_create: '{memory_id}' sera auto-ajouté au token de '{auth.get('client_name')}'", file=sys.stderr)
+            elif not allowed:
+                # memory_ids vide = accès à tout → pas besoin d'auto-add
+                pass
+            else:
+                # La mémoire est déjà dans la liste → OK
+                pass
+        else:
+            # Pas de token restreint → vérification standard
+            access_err = check_memory_access(memory_id)
+            if access_err:
+                return access_err
         
         # Vérifier que l'ontologie existe et la récupérer
         from .core.ontology import get_ontology_manager
@@ -194,6 +218,20 @@ async def memory_create(
             ontology_uri=ontology_s3_result["uri"]
         )
         
+        # Auto-ajouter la mémoire au token si nécessaire (isolation multi-tenant)
+        if _auto_add_to_token and auth and auth.get("token_hash"):
+            try:
+                await get_tokens().update_token_memories(
+                    token_hash=auth["token_hash"],
+                    add_memories=[memory_id]
+                )
+                # Mettre à jour le contexte auth en mémoire pour la session courante
+                auth["memory_ids"].append(memory_id)
+                current_auth.set(auth)
+                print(f"🔑 [Auth] memory_create: '{memory_id}' auto-ajouté au token de '{auth.get('client_name')}'", file=sys.stderr)
+            except Exception as e:
+                print(f"⚠️ [Auth] Impossible d'auto-ajouter '{memory_id}' au token: {e}", file=sys.stderr)
+        
         return {
             "status": "created",
             "memory_id": memory.id,
@@ -209,7 +247,9 @@ async def memory_create(
 
 
 @mcp.tool()
-async def memory_delete(memory_id: str) -> dict:
+async def memory_delete(
+    memory_id: Annotated[str, Field(description="ID de la mémoire à supprimer (⚠️ irréversible)")]
+) -> dict:
     """
     Supprime une mémoire et tout son contenu (graphe + S3).
     
@@ -223,10 +263,13 @@ async def memory_delete(memory_id: str) -> dict:
         Statut de la suppression avec détails S3
     """
     try:
-        # Vérifier l'accès à la mémoire
+        # Vérifier l'accès à la mémoire + permission write
         access_err = check_memory_access(memory_id)
         if access_err:
             return access_err
+        write_err = check_write_permission()
+        if write_err:
+            return write_err
         
         # 1. Supprimer la collection Qdrant (couplage strict)
         qdrant_deleted = False
@@ -263,13 +306,25 @@ async def memory_delete(memory_id: str) -> dict:
 @mcp.tool()
 async def memory_list() -> dict:
     """
-    Liste toutes les mémoires disponibles.
+    Liste les mémoires accessibles au client.
+    
+    Un client non-admin ne voit que les mémoires autorisées par son token.
+    Un admin ou un accès localhost voit toutes les mémoires.
     
     Returns:
         Liste des mémoires avec leurs métadonnées
     """
     try:
         memories = await get_graph().list_memories()
+        
+        # Filtrer par les mémoires autorisées (isolation multi-tenant)
+        allowed = get_allowed_memory_ids()
+        if allowed is not None and len(allowed) > 0:
+            # Token restreint : ne montrer que les mémoires autorisées
+            memories = [m for m in memories if m.id in allowed]
+        # allowed is None → admin/bootstrap/localhost → pas de filtrage
+        # allowed == [] → token sans restriction → pas de filtrage
+        
         return {
             "status": "ok",
             "count": len(memories),
@@ -289,7 +344,9 @@ async def memory_list() -> dict:
 
 
 @mcp.tool()
-async def memory_stats(memory_id: str) -> dict:
+async def memory_stats(
+    memory_id: Annotated[str, Field(description="ID de la mémoire")]
+) -> dict:
     """
     Récupère les statistiques d'une mémoire.
     
@@ -324,13 +381,13 @@ async def memory_stats(memory_id: str) -> dict:
 
 @mcp.tool()
 async def memory_ingest(
-    memory_id: str,
-    content_base64: str,
-    filename: str,
-    metadata: Optional[Dict[str, Any]] = None,
-    force: bool = False,
-    source_path: Optional[str] = None,
-    source_modified_at: Optional[str] = None,
+    memory_id: Annotated[str, Field(description="ID de la mémoire cible")],
+    content_base64: Annotated[str, Field(description="Contenu du document encodé en base64")],
+    filename: Annotated[str, Field(description="Nom du fichier (ex: 'contrat.pdf', 'notes.md')")],
+    metadata: Annotated[Optional[Dict[str, Any]], Field(default=None, description="Métadonnées additionnelles (clé/valeur libre)")] = None,
+    force: Annotated[bool, Field(default=False, description="Si true, réingère même si le document existe déjà (dédup SHA-256)")] = False,
+    source_path: Annotated[Optional[str], Field(default=None, description="Chemin d'origine du fichier (ex: 'legal/contracts/CGA.pdf')")] = None,
+    source_modified_at: Annotated[Optional[str], Field(default=None, description="Date de modification source ISO 8601 (ex: '2026-01-15T10:30:00')")] = None,
     ctx: Optional[Context] = None
 ) -> dict:
     """
@@ -386,10 +443,13 @@ async def memory_ingest(
                 except Exception:
                     pass
         
-        # Vérifier l'accès à la mémoire
+        # Vérifier l'accès à la mémoire + permission write
         access_err = check_memory_access(memory_id)
         if access_err:
             return access_err
+        write_err = check_write_permission()
+        if write_err:
+            return write_err
         
         # Décoder le contenu (libérer content_base64 ensuite — peut être volumineux)
         content = base64.b64decode(content_base64)
@@ -705,9 +765,9 @@ def _extract_text(content: bytes, filename: str) -> Optional[str]:
 
 @mcp.tool()
 async def memory_search(
-    memory_id: str,
-    query: str,
-    limit: int = 10
+    memory_id: Annotated[str, Field(description="ID de la mémoire")],
+    query: Annotated[str, Field(description="Requête de recherche (texte libre)")],
+    limit: Annotated[int, Field(default=10, description="Nombre max de résultats (défaut: 10)")] = 10
 ) -> dict:
     """
     Recherche dans une mémoire (graph-first).
@@ -758,9 +818,9 @@ async def memory_search(
 
 @mcp.tool()
 async def question_answer(
-    memory_id: str,
-    question: str,
-    limit: int = 10
+    memory_id: Annotated[str, Field(description="ID de la mémoire")],
+    question: Annotated[str, Field(description="Question en langage naturel")],
+    limit: Annotated[int, Field(default=10, description="Nombre max d'entités à rechercher (défaut: 10)")] = 10
 ) -> dict:
     """
     Pose une question sur une mémoire et obtient une réponse basée sur le graphe.
@@ -962,9 +1022,9 @@ CONSIGNES :
 
 @mcp.tool()
 async def memory_query(
-    memory_id: str,
-    query: str,
-    limit: int = 10
+    memory_id: Annotated[str, Field(description="ID de la mémoire")],
+    query: Annotated[str, Field(description="Requête en langage naturel")],
+    limit: Annotated[int, Field(default=10, description="Nombre max d'entités à rechercher (défaut: 10)")] = 10
 ) -> dict:
     """
     Interroge une mémoire et retourne les données structurées SANS génération LLM.
@@ -1119,9 +1179,9 @@ async def memory_query(
 
 @mcp.tool()
 async def memory_get_context(
-    memory_id: str,
-    entity_name: str,
-    depth: int = 1
+    memory_id: Annotated[str, Field(description="ID de la mémoire")],
+    entity_name: Annotated[str, Field(description="Nom exact de l'entité à explorer")],
+    depth: Annotated[int, Field(default=1, description="Profondeur de traversée du graphe (1 = voisins directs)")] = 1
 ) -> dict:
     """
     Récupère le contexte complet d'une entité.
@@ -1169,11 +1229,11 @@ async def memory_get_context(
 
 @mcp.tool()
 async def admin_create_token(
-    client_name: str,
-    permissions: Optional[List[str]] = None,
-    memory_ids: Optional[List[str]] = None,
-    expires_in_days: Optional[int] = None,
-    email: Optional[str] = None
+    client_name: Annotated[str, Field(description="Nom du client (ex: 'quoteflow', 'vela')")],
+    permissions: Annotated[Optional[List[str]], Field(default=None, description="Permissions : 'read', 'write', 'admin' (défaut: ['read', 'write'])")] = None,
+    memory_ids: Annotated[Optional[List[str]], Field(default=None, description="IDs des mémoires autorisées (vide = toutes)")] = None,
+    expires_in_days: Annotated[Optional[int], Field(default=None, description="Expiration en jours (optionnel, None = pas d'expiration)")] = None,
+    email: Annotated[Optional[str], Field(default=None, description="Adresse email du propriétaire du token")] = None
 ) -> dict:
     """
     Crée un nouveau token d'accès pour un client.
@@ -1191,6 +1251,11 @@ async def admin_create_token(
         Token généré (à conserver précieusement)
     """
     try:
+        # Sécurité : permission admin requise
+        admin_err = check_admin_permission()
+        if admin_err:
+            return admin_err
+        
         token = await get_tokens().create_token(
             client_name=client_name,
             permissions=permissions or ["read", "write"],
@@ -1224,6 +1289,11 @@ async def admin_list_tokens() -> dict:
         Liste des tokens avec leurs infos
     """
     try:
+        # Sécurité : permission admin requise
+        admin_err = check_admin_permission()
+        if admin_err:
+            return admin_err
+        
         tokens = await get_tokens().list_tokens()
         
         return {
@@ -1248,7 +1318,9 @@ async def admin_list_tokens() -> dict:
 
 
 @mcp.tool()
-async def admin_revoke_token(token_hash_prefix: str) -> dict:
+async def admin_revoke_token(
+    token_hash_prefix: Annotated[str, Field(description="Début du hash du token à révoquer (8+ caractères)")]
+) -> dict:
     """
     Révoque un token.
     
@@ -1259,6 +1331,11 @@ async def admin_revoke_token(token_hash_prefix: str) -> dict:
         Statut de la révocation
     """
     try:
+        # Sécurité : permission admin requise
+        admin_err = check_admin_permission()
+        if admin_err:
+            return admin_err
+        
         # Trouver le token par son préfixe
         tokens = await get_tokens().list_tokens(include_revoked=False)
         
@@ -1286,29 +1363,42 @@ async def admin_revoke_token(token_hash_prefix: str) -> dict:
 
 @mcp.tool()
 async def admin_update_token(
-    token_hash_prefix: str,
-    add_memories: Optional[List[str]] = None,
-    remove_memories: Optional[List[str]] = None,
-    set_memories: Optional[List[str]] = None
+    token_hash_prefix: Annotated[str, Field(description="Début du hash du token (8+ caractères)")],
+    add_memories: Annotated[Optional[List[str]], Field(default=None, description="Mémoires à ajouter (ex: ['JURIDIQUE', 'CLOUD'])")] = None,
+    remove_memories: Annotated[Optional[List[str]], Field(default=None, description="Mémoires à retirer (ex: ['JURIDIQUE'])")] = None,
+    set_memories: Annotated[Optional[List[str]], Field(default=None, description="Remplacer la liste (ex: ['CLOUD'], ou [] pour tout autoriser)")] = None,
+    set_permissions: Annotated[Optional[List[str]], Field(default=None, description="Remplacer les permissions (ex: ['admin', 'read', 'write'] pour promouvoir en admin)")] = None
 ) -> dict:
     """
-    Met à jour les mémoires autorisées d'un token.
+    Met à jour les mémoires autorisées et/ou les permissions d'un token.
     
-    Trois modes (mutuellement exclusifs avec set_memories) :
+    Gestion des mémoires (mutuellement exclusifs avec set_memories) :
     - add_memories: Ajoute des mémoires à la liste existante
     - remove_memories: Retire des mémoires de la liste existante
     - set_memories: Remplace toute la liste ([] = accès à TOUTES les mémoires)
+    
+    Gestion des permissions :
+    - set_permissions: Remplace les permissions (ex: ["admin", "read", "write"] pour promouvoir en admin)
+    
+    Permissions valides : 'read', 'write', 'admin'.
+    Un token avec la permission 'admin' a accès à TOUS les outils, y compris la gestion des tokens.
     
     Args:
         token_hash_prefix: Début du hash du token (8+ caractères)
         add_memories: Mémoires à ajouter (ex: ["JURIDIQUE", "CLOUD"])
         remove_memories: Mémoires à retirer (ex: ["JURIDIQUE"])
         set_memories: Remplacer toute la liste (ex: ["CLOUD"], ou [] pour tout autoriser)
+        set_permissions: Remplacer les permissions (ex: ["admin", "read", "write"])
         
     Returns:
-        Anciennes et nouvelles mémoires autorisées
+        Anciennes et nouvelles mémoires/permissions autorisées
     """
     try:
+        # Sécurité : permission admin requise
+        admin_err = check_admin_permission()
+        if admin_err:
+            return admin_err
+        
         # Trouver le token par son préfixe
         tokens = await get_tokens().list_tokens(include_revoked=False)
         matching = [t for t in tokens if t.token_hash.startswith(token_hash_prefix)]
@@ -1319,39 +1409,76 @@ async def admin_update_token(
         if len(matching) > 1:
             return {"status": "error", "message": "Préfixe ambigu, soyez plus précis"}
         
-        # Vérifier que les mémoires existent (si on en ajoute)
-        memories_to_check = (add_memories or []) + (set_memories or [])
-        if memories_to_check:
-            existing_memories = await get_graph().list_memories()
-            existing_ids = {m.id for m in existing_memories}
-            unknown = [m for m in memories_to_check if m not in existing_ids]
-            if unknown:
+        result_parts = {}
+        
+        # === Mise à jour des permissions (si demandé) ===
+        if set_permissions is not None:
+            valid_perms = {"read", "write", "admin"}
+            invalid = set(set_permissions) - valid_perms
+            if invalid:
                 return {
                     "status": "error",
-                    "message": f"Mémoires inconnues: {unknown}. Disponibles: {sorted(existing_ids)}"
+                    "message": f"Permissions invalides: {invalid}. Valides: {sorted(valid_perms)}"
                 }
+            
+            perm_result = await get_tokens().update_token_permissions(
+                token_hash=matching[0].token_hash,
+                permissions=set_permissions
+            )
+            if perm_result:
+                result_parts["previous_permissions"] = perm_result["previous_permissions"]
+                result_parts["current_permissions"] = perm_result["current_permissions"]
         
-        # Mettre à jour
-        result = await get_tokens().update_token_memories(
-            token_hash=matching[0].token_hash,
-            add_memories=add_memories,
-            remove_memories=remove_memories,
-            set_memories=set_memories
-        )
+        # === Mise à jour des mémoires (si demandé) ===
+        has_memory_update = add_memories or remove_memories or set_memories is not None
+        if has_memory_update:
+            # Vérifier que les mémoires existent (si on en ajoute)
+            memories_to_check = (add_memories or []) + (set_memories or []) if set_memories is not None else (add_memories or [])
+            if memories_to_check:
+                existing_memories = await get_graph().list_memories()
+                existing_ids = {m.id for m in existing_memories}
+                unknown = [m for m in memories_to_check if m not in existing_ids]
+                if unknown:
+                    return {
+                        "status": "error",
+                        "message": f"Mémoires inconnues: {unknown}. Disponibles: {sorted(existing_ids)}"
+                    }
+            
+            mem_result = await get_tokens().update_token_memories(
+                token_hash=matching[0].token_hash,
+                add_memories=add_memories,
+                remove_memories=remove_memories,
+                set_memories=set_memories
+            )
+            if mem_result:
+                result_parts["previous_memories"] = mem_result["previous_memories"]
+                result_parts["current_memories"] = mem_result["current_memories"]
         
-        if result:
-            return {
-                "status": "ok",
-                "client_name": result["client_name"],
-                "token_hash_prefix": result["token_hash"][:8] + "...",
-                "previous_memories": result["previous_memories"],
-                "current_memories": result["current_memories"],
-                "message": (
-                    "Accès à toutes les mémoires" if not result["current_memories"]
-                    else f"Accès restreint à: {result['current_memories']}"
-                )
-            }
-        return {"status": "error", "message": "Token non trouvé ou inactif"}
+        if not result_parts:
+            return {"status": "error", "message": "Aucune modification demandée (spécifiez set_permissions, add_memories, remove_memories ou set_memories)"}
+        
+        # Construire le message
+        messages = []
+        if "current_permissions" in result_parts:
+            perms = result_parts["current_permissions"]
+            if "admin" in perms:
+                messages.append(f"🔑 Promu ADMIN (permissions: {perms})")
+            else:
+                messages.append(f"Permissions: {perms}")
+        if "current_memories" in result_parts:
+            mems = result_parts["current_memories"]
+            if not mems:
+                messages.append("Accès à toutes les mémoires")
+            else:
+                messages.append(f"Mémoires: {mems}")
+        
+        return {
+            "status": "ok",
+            "client_name": matching[0].client_name,
+            "token_hash_prefix": matching[0].token_hash[:8] + "...",
+            **result_parts,
+            "message": " | ".join(messages)
+        }
         
     except Exception as e:
         return {"status": "error", "message": str(e)}
@@ -1362,7 +1489,10 @@ async def admin_update_token(
 # =============================================================================
 
 @mcp.tool()
-async def memory_graph(memory_id: str, format: str = "full") -> dict:
+async def memory_graph(
+    memory_id: Annotated[str, Field(description="ID de la mémoire")],
+    format: Annotated[str, Field(default="full", description="Format : 'full' (tout), 'nodes', 'edges', 'documents'")] = "full"
+) -> dict:
     """
     Récupère le graphe complet d'une mémoire (entités, relations et documents).
     
@@ -1424,7 +1554,9 @@ async def memory_graph(memory_id: str, format: str = "full") -> dict:
 
 
 @mcp.tool()
-async def document_list(memory_id: str) -> dict:
+async def document_list(
+    memory_id: Annotated[str, Field(description="ID de la mémoire")]
+) -> dict:
     """
     Liste tous les documents d'une mémoire.
     
@@ -1435,6 +1567,11 @@ async def document_list(memory_id: str) -> dict:
         Liste des documents avec leurs métadonnées
     """
     try:
+        # Vérifier l'accès à la mémoire
+        access_err = check_memory_access(memory_id)
+        if access_err:
+            return access_err
+        
         graph_data = await get_graph().get_full_graph(memory_id)
         docs = graph_data.get("documents", [])
         
@@ -1450,9 +1587,9 @@ async def document_list(memory_id: str) -> dict:
 
 @mcp.tool()
 async def document_get(
-    memory_id: str,
-    document_id: str,
-    include_content: bool = False
+    memory_id: Annotated[str, Field(description="ID de la mémoire")],
+    document_id: Annotated[str, Field(description="ID du document (UUID)")],
+    include_content: Annotated[bool, Field(default=False, description="Si true, télécharge et inclut le contenu S3 (lent)")] = False
 ) -> dict:
     """
     Récupère les métadonnées d'un document, et optionnellement son contenu.
@@ -1469,6 +1606,11 @@ async def document_get(
         Métadonnées du document (et contenu si demandé)
     """
     try:
+        # Vérifier l'accès à la mémoire
+        access_err = check_memory_access(memory_id)
+        if access_err:
+            return access_err
+        
         # Récupérer les infos du document depuis le graphe (rapide, pas de S3)
         doc_info = await get_graph().get_document(memory_id, document_id)
         
@@ -1506,7 +1648,10 @@ async def document_get(
 
 
 @mcp.tool()
-async def document_delete(memory_id: str, document_id: str) -> dict:
+async def document_delete(
+    memory_id: Annotated[str, Field(description="ID de la mémoire")],
+    document_id: Annotated[str, Field(description="ID du document à supprimer (UUID)")]
+) -> dict:
     """
     Supprime un document du graphe ET de S3.
     
@@ -1598,7 +1743,9 @@ async def ontology_list() -> dict:
 
 
 @mcp.tool()
-async def storage_check(memory_id: Optional[str] = None) -> dict:
+async def storage_check(
+    memory_id: Annotated[Optional[str], Field(default=None, description="ID d'une mémoire spécifique (optionnel, toutes si omis)")] = None
+) -> dict:
     """
     Vérifie la cohérence entre le graphe Neo4j et le stockage S3.
     
@@ -1614,6 +1761,16 @@ async def storage_check(memory_id: Optional[str] = None) -> dict:
         Rapport de cohérence S3/Graphe avec documents OK, manquants et orphelins
     """
     try:
+        # Sécurité : admin requis pour le mode global, check_memory_access pour une mémoire spécifique
+        if memory_id:
+            access_err = check_memory_access(memory_id)
+            if access_err:
+                return access_err
+        else:
+            admin_err = check_admin_permission()
+            if admin_err:
+                return admin_err
+        
         # 1. Récupérer les mémoires à vérifier
         if memory_id:
             memory = await get_graph().get_memory(memory_id)
@@ -1758,7 +1915,9 @@ async def storage_check(memory_id: Optional[str] = None) -> dict:
 
 
 @mcp.tool()
-async def storage_cleanup(dry_run: bool = True) -> dict:
+async def storage_cleanup(
+    dry_run: Annotated[bool, Field(default=True, description="Si true, liste seulement. Si false, supprime réellement les orphelins")] = True
+) -> dict:
     """
     Nettoie les fichiers orphelins sur S3.
     
@@ -1775,6 +1934,11 @@ async def storage_cleanup(dry_run: bool = True) -> dict:
         Liste des fichiers orphelins (supprimés ou à supprimer)
     """
     try:
+        # Sécurité : permission admin requise (opération globale S3)
+        admin_err = check_admin_permission()
+        if admin_err:
+            return admin_err
+        
         # 1. Exécuter le check complet pour identifier les orphelins
         check = await storage_check()
         
@@ -2005,8 +2169,8 @@ async def system_health() -> dict:
 
 @mcp.tool()
 async def backup_create(
-    memory_id: str,
-    description: Optional[str] = None,
+    memory_id: Annotated[str, Field(description="ID de la mémoire à sauvegarder")],
+    description: Annotated[Optional[str], Field(default=None, description="Description optionnelle du backup")] = None,
     ctx: Optional[Context] = None
 ) -> dict:
     """
@@ -2050,7 +2214,9 @@ async def backup_create(
 
 
 @mcp.tool()
-async def backup_list(memory_id: Optional[str] = None) -> dict:
+async def backup_list(
+    memory_id: Annotated[Optional[str], Field(default=None, description="Filtrer par mémoire (optionnel, tous si omis)")] = None
+) -> dict:
     """
     Liste les backups disponibles sur S3.
     
@@ -2062,7 +2228,18 @@ async def backup_list(memory_id: Optional[str] = None) -> dict:
         Liste des backups avec date, taille, statistiques
     """
     try:
+        # Sécurité : filtrer par mémoires autorisées
+        if memory_id:
+            access_err = check_memory_access(memory_id)
+            if access_err:
+                return access_err
+        
         backups = await get_backup().list_backups(memory_id=memory_id)
+        
+        # Filtrer les backups par les mémoires autorisées (si token restreint)
+        allowed = get_allowed_memory_ids()
+        if allowed is not None and len(allowed) > 0 and not memory_id:
+            backups = [b for b in backups if b.get("memory_id") in allowed]
         
         return {
             "status": "ok",
@@ -2086,7 +2263,7 @@ async def backup_list(memory_id: Optional[str] = None) -> dict:
 
 @mcp.tool()
 async def backup_restore(
-    backup_id: str,
+    backup_id: Annotated[str, Field(description="ID du backup (format: 'memory_id/timestamp')")],
     ctx: Optional[Context] = None
 ) -> dict:
     """
@@ -2133,8 +2310,8 @@ async def backup_restore(
 
 @mcp.tool()
 async def backup_download(
-    backup_id: str,
-    include_documents: bool = False,
+    backup_id: Annotated[str, Field(description="ID du backup (format: 'memory_id/timestamp')")],
+    include_documents: Annotated[bool, Field(default=False, description="Si true, inclut les documents originaux (PDF, DOCX, etc.)")] = False,
     ctx: Optional[Context] = None
 ) -> dict:
     """
@@ -2192,7 +2369,9 @@ async def backup_download(
 
 
 @mcp.tool()
-async def backup_delete(backup_id: str) -> dict:
+async def backup_delete(
+    backup_id: Annotated[str, Field(description="ID du backup à supprimer (format: 'memory_id/timestamp')")]
+) -> dict:
     """
     Supprime un backup de S3.
     
@@ -2221,7 +2400,7 @@ async def backup_delete(backup_id: str) -> dict:
 
 @mcp.tool()
 async def backup_restore_archive(
-    archive_base64: str,
+    archive_base64: Annotated[str, Field(description="Contenu de l'archive tar.gz encodé en base64")],
     ctx: Optional[Context] = None
 ) -> dict:
     """
@@ -2247,6 +2426,25 @@ async def backup_restore_archive(
             return write_err
         
         archive_bytes = base64.b64decode(archive_base64)
+        
+        # Extraire le memory_id du manifest pour vérifier l'accès
+        import tarfile
+        from io import BytesIO
+        try:
+            with tarfile.open(fileobj=BytesIO(archive_bytes), mode='r:gz') as tar:
+                manifest_member = tar.getmember('manifest.json')
+                manifest_file = tar.extractfile(manifest_member)
+                if manifest_file:
+                    manifest_data = json.loads(manifest_file.read())
+                else:
+                    manifest_data = {}
+                archive_memory_id = manifest_data.get("memory_id")
+                if archive_memory_id:
+                    access_err = check_memory_access(archive_memory_id)
+                    if access_err:
+                        return access_err
+        except (KeyError, json.JSONDecodeError):
+            pass  # Le backup service gérera les erreurs de format
         
         async def _progress(msg):
             if ctx:

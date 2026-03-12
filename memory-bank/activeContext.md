@@ -1,74 +1,54 @@
 # Active Context
 
-## Focus actuel (mis à jour 2026-04-03)
+## Contexte actuel (11 mars 2026)
 
-### Migration SSE → Streamable HTTP (issue #1) — EN COURS SUR BRANCHE DEV
+### Focus : Isolation multi-tenant v1.6.0
 
-**Branche** : `dev/streamable-http` (4 commits, en attente de commit final + merge)
+Audit de sécurité complet du système d'authentification et d'isolation des données. **14 failles corrigées**, recette automatisée de 119 tests, promotion admin déléguée.
 
-**Contexte** : L'issue GitHub #1 demande la migration du transport SSE (déprécié dans la spec MCP 2025-03-26) vers Streamable HTTP. Migration propre sans rétrocompatibilité.
+### Changements majeurs v1.6.0
 
-**Changements effectués** :
+**Sécurité (14 failles corrigées)** :
+- `memory_list`, `backup_list` → filtrés par `memory_ids` du token
+- `memory_create` → auto-ajout au token après création (permet aux clients restreints de créer)
+- `memory_delete`, `memory_ingest` → `check_write_permission()` ajouté
+- `document_list`, `document_get` → `check_memory_access()` ajouté
+- 4 outils `admin_*` → `check_admin_permission()` ajouté (empêche escalade de privilèges)
+- `storage_check` (global), `storage_cleanup` → admin requis
+- `backup_restore_archive` → vérification memory_id dans le manifest
 
-| Composant | Avant | Après |
-|-----------|-------|-------|
-| **server.py** | `mcp.sse_app()` → endpoints `/sse` + `/messages` | `mcp.streamable_http_app()` → endpoint unique `/mcp` |
-| **client.py** | `from mcp.client.sse import sse_client` | `from mcp.client.streamable_http import streamablehttp_client` |
-| **middleware.py** | `HostNormalizerMiddleware` (workaround Host header) | Supprimé (plus nécessaire) |
-| **requirements.txt** | `mcp>=1.0.0` | `mcp>=1.8.0` |
-| **waf/Caddyfile** | Routes `/sse*` + `/messages/*` séparées | Route unique `/mcp*` |
-| **Rate limiting** | SSE 10/min + messages 60/min + global 200/min | MCP 200/min + global 500/min |
-| **Dockerfile** | Healthcheck `/sse`, VERSION non copié | Healthcheck `/health`, `COPY VERSION .` |
-| **middleware health** | Version hardcodée `"1.1.0"` | Lecture dynamique fichier `VERSION` |
+**Nouvelles fonctions auth** (`auth/context.py`) :
+- `check_admin_permission()` — garde pour outils admin
+- `get_allowed_memory_ids()` — filtre les résultats par token
 
-**Tests de qualification** : `scripts/test_streamable_http.py` — **27/27 PASS en 10.4s**
+**Promotion admin déléguée** :
+- `update_token_permissions()` dans `token_manager.py`
+- `set_permissions` dans `admin_update_token` → promouvoir/rétrograder des tokens
+- Chaîne de confiance : bootstrap → admin délégué → sous-tokens
 
-**Fichiers modifiés** (branche dev vs main) :
-- `src/mcp_memory/server.py` — streamable_http_app()
-- `scripts/cli/client.py` — streamablehttp_client
-- `src/mcp_memory/auth/middleware.py` — suppression HostNormalizerMiddleware + fix version
-- `requirements.txt` — mcp>=1.8.0
-- `waf/Caddyfile` — route /mcp + rate limits ajustés
-- `Dockerfile` — COPY VERSION + healthcheck /health
-- `README.md` — SSE → Streamable HTTP partout
-- `README.en.md` — nouvelle version anglaise
-- `scripts/README.md` — SSE → Streamable HTTP
-- `scripts/test_streamable_http.py` — script de test complet
-- `starter-kit/boilerplate/` — tous les fichiers alignés
+**Recette complète** (`scripts/test_recette.py`) :
+- 119 tests, 7 phases, 7 modules (<120 lignes chacun)
+- 3 profils : admin, read/write restreint, read-only
+- Teste tous les 28 outils MCP + isolation + déduplication SHA-256
 
-**Documentation mise à jour (2026-04-03)** :
-- CHANGELOG.md : entrée v1.4.0 complète (migration SSE → Streamable HTTP)
-- README.md : section Changelog mise à jour (v1.4.0 + v1.3.7), footer v1.4.0
-- docker-compose.yml : healthcheck corrigé `/sse` → `/health` (causait des 404 en boucle)
-- README.en.md : restauré (traduction fidèle à faire manuellement par Christophe)
+**Scripts nettoyés** :
+- 7 scripts obsolètes supprimés (analyze_*.py, test_ontology.py, test_service.py, view_graph.py, ingest_quoteflow.*)
+- README scripts mis à jour (fr + en)
 
-**Prochaines étapes** :
-- [ ] Traduire README.en.md + créer CHANGELOG.en.md (Christophe s'en occupe)
-- [ ] Commit final de la documentation + healthcheck fix
-- [ ] Merge sur main + bump VERSION → 1.4.0
-- [ ] Redéployer en production
-- [ ] Coordonner la migration Live Memory (même pattern)
+### Contexte précédent (v1.5.0)
 
----
+Ontologie `software-development` v1.2 pour l'ingestion de code source :
+- 21 types d'entités + 23 types de relations
+- Test QuoteFlow : 965 entités, 910 relations, 99% conformité
 
-### Découvertes pendant la migration
+### Décisions actives
 
-1. **Rate limiting Streamable HTTP** : Chaque appel d'outil MCP = 3 requêtes HTTP (POST init + POST call + DELETE close). L'ancien rate limiting SSE (60/min) était trop bas → augmenté à 200/min pour /mcp.
+- **memory_ids vide = accès à toutes les mémoires** : c'est le comportement par défaut pour un token. L'admin doit explicitement restreindre les memory_ids pour isoler un client.
+- **Auto-ajout au token lors de memory_create** : un client restreint qui crée une mémoire la voit automatiquement ajoutée à son token. Cela évite de devoir faire un round-trip admin.
+- **Localhost exempt d'auth pour MCP** : les requêtes depuis 127.0.0.1 n'ont pas besoin de token (sauf /api/*). Décision de design pour faciliter le développement.
 
-2. **`HostNormalizerMiddleware` obsolète** : Ce middleware normalisait le Host header pour contourner la validation DNS rebinding du SDK MCP v1.26+. Streamable HTTP n'a plus cette validation → middleware supprimé.
+### Prochaines étapes possibles
 
-3. **Notifications de progression** : Le mécanisme `ctx.info()` → `_received_notification` fonctionne toujours en Streamable HTTP (19 notifications reçues pendant l'ingestion test).
-
-4. **Version /health** : La version était hardcodée "1.1.0" dans le middleware. Corrigé pour lire le fichier VERSION. Le fichier n'était pas dans l'image Docker → ajouté `COPY VERSION .` dans le Dockerfile.
-
-5. **Healthcheck Docker** : Pointait vers `/sse` (qui n'existe plus) → changé en `/health`.
-
----
-
-## Historique récent
-
-### Intégration Live Memory — Architecture mémoire à deux niveaux (2026-02-21)
-(Voir memory bank précédente — toujours valide)
-
-### Ontologie general.yaml v1.1 — Réduction "Other" (2026-02-19)
-(Voir memory bank précédente — toujours valide)
+- Tester en production (déploiement Docker)
+- Ajouter des tests d'expiration de tokens
+- Considérer le rate-limiting par token (pas seulement par IP)

@@ -1,6 +1,83 @@
 # Changelog
 
+## [1.6.0] - 2026-03-11
+
+### 🔒 Isolation multi-tenant — Audit et durcissement complet
+
+Audit de sécurité complet du système d'authentification et d'isolation des données. **12 failles corrigées**, couvrant l'escalade de privilèges, les fuites d'information et l'absence de contrôle d'accès sur plusieurs outils MCP.
+
+#### Ajouté
+- **`check_admin_permission()`** (`auth/context.py`) — Nouvelle garde pour les outils réservés aux administrateurs
+- **`get_allowed_memory_ids()`** (`auth/context.py`) — Retourne la liste des memory_ids autorisés pour filtrer les résultats
+- **`update_token_permissions()`** (`token_manager.py`) — Permet de promouvoir/rétrograder les permissions d'un token (read/write/admin)
+- **`set_permissions`** dans `admin_update_token` — Nouveau paramètre pour modifier les permissions d'un token existant (ex: promotion admin)
+- **`scripts/test_recette.py`** — Recette complète modulaire (119 tests, 7 phases, 7 modules) testant TOUS les 28 outils MCP avec 3 profils de tokens (admin, read+write restreint, read-only). Vérifie l'isolation entre clients, la protection des outils admin, la chaîne de confiance admin, la déduplication SHA-256, et le cycle complet CRUD.
+- **`scripts/tests/`** — 7 modules de test : `test_system`, `test_tokens`, `test_memories`, `test_documents`, `test_search`, `test_backup`, `test_cleanup`
+
+#### Corrigé (sécurité — 14 failles)
+- **`memory_list()`** — Listait TOUTES les mémoires → filtré par `memory_ids` du token
+- **`memory_create()`** — Impossible pour un token restreint de créer une mémoire → auto-ajout au token après création
+- **`memory_delete()`** — Manquait `check_write_permission()` → un client read-only pouvait supprimer
+- **`memory_ingest()`** — Manquait `check_write_permission()` → un client read-only pouvait ingérer
+- **`document_list()`** — Aucun `check_memory_access()` → ajouté
+- **`document_get()`** — Aucun `check_memory_access()` → ajouté (fuite de contenu S3 possible)
+- **`admin_create_token()`** — Pas de vérification admin → `check_admin_permission()` ajouté (escalade de privilèges)
+- **`admin_list_tokens()`** — Pas de vérification admin → `check_admin_permission()` ajouté (fuite d'info tokens)
+- **`admin_revoke_token()`** — Pas de vérification admin → `check_admin_permission()` ajouté
+- **`admin_update_token()`** — Pas de vérification admin → `check_admin_permission()` ajouté (auto-promotion possible)
+- **`storage_check()`** — Aucun contrôle → admin requis pour mode global, `check_memory_access` pour mémoire spécifique
+- **`storage_cleanup()`** — Aucun contrôle → `check_admin_permission()` requis
+- **`backup_list()`** — Listait TOUS les backups → filtré par `memory_ids` du token
+- **`backup_restore_archive()`** — Pas de vérification du memory_id dans le manifest → extraction et vérification ajoutées
+
+#### Nettoyé
+- **7 scripts obsolètes supprimés** : `analyze_entities.py`, `analyze_others.py`, `test_ontology.py`, `test_service.py`, `ingest_quoteflow.sh`, `ingest_quoteflow.log`, `view_graph.py`
+- **`scripts/README.md`** mis à jour (architecture, v1.6.0)
+- **`scripts/README.en.md`** créé (traduction anglaise)
+
+#### Fichiers modifiés
+`src/mcp_memory/auth/context.py`, `src/mcp_memory/auth/token_manager.py`, `src/mcp_memory/server.py`, `VERSION`, `scripts/test_recette.py` (nouveau), `scripts/tests/` (nouveau, 8 fichiers), `scripts/README.md`, `scripts/README.en.md` (nouveau)
+
+---
+
+## [1.5.0] - 2026-03-11
+
+### 🧠 Nouvelle ontologie `software-development` v1.2
+
+Ontologie spécialisée pour l'ingestion de code source et de documentation technique dans graph-memory. Permet à un agent IA de comprendre l'architecture, les composants, les dépendances et les patterns d'un projet logiciel.
+
+#### Ajouté
+- 📚 **Ontologie `software-development` v1.2** — 21 types d'entités + 23 types de relations, couvrant :
+  - Architecture logicielle : `Package`, `Module`, `Layer`, `Class`, `Function`, `Middleware`
+  - Données : `DataModel`, `Enum`
+  - APIs : `MCPTool`, `APIEndpoint`, `Protocol`
+  - Infrastructure : `ExternalService`, `Dependency`, `ConfigParameter`, `InfraComponent`, `SecurityBoundary`
+  - Qualité : `DesignPattern`, `Algorithm`, `TestCase`, `Documentation`, `Feature`
+  - Relations : `CONTAINS`, `PART_OF`, `BELONGS_TO_LAYER`, `DEPENDS_ON`, `IMPORTS`, `USES`, `CALLS`, `INHERITS_FROM`, `IMPLEMENTS`, `RETURNS`, `ACCEPTS`, `PRODUCES`, `STORES_IN`, `EXPOSES`, `DELEGATES_TO`, `UPDATES`, `READS`, `CONFIGURED_BY`, `TESTED_BY`, `DOCUMENTED_IN`, `IMPLEMENTS_FEATURE`, `PROTECTS`, `ROUTES_TO`
+- 🔍 **Script d'audit d'ontologie** — `scripts/audit_ontology.py` : analyse la qualité d'extraction sur une mémoire (conformité types, orphelins, hubs, fusion cross-docs, nommage)
+- 📦 **Script d'ingestion en masse** — `scripts/ingest_quoteflow.sh` : ingestion automatique de projets complets (backend + auth + frontend)
+- 📐 **Règles avancées d'extraction** :
+  - Nommage canonique (fusion cross-documents)
+  - 12 mappings obligatoires de relations (EXECUTES→CALLS, IMPLEMENTED_BY→IMPLEMENTS, etc.)
+  - Connectivité minimum (≥2 relations par entité)
+  - Anti-hub rules (max 30 relations par Class)
+  - Zéro entité de type "Other"
+
+#### Résultats du test sur QuoteFlow (backend Python/FastAPI)
+- 965 entités, 910 relations extraites de 10 fichiers Python
+- 99% de conformité des types d'entités
+- 95% de conformité des types de relations
+- Types les plus représentés : Function (23%), APIEndpoint (14%), ConfigParameter (10%), MCPTool (10%)
+
+---
+
 ## [1.4.0] - 2026-04-03
+
+### 📋 Descriptions de paramètres MCP tools (2026-03-08)
+
+- 📋 **53 paramètres annotés** — Tous les paramètres utilisateur des 28 tools MCP utilisent `Annotated[type, Field(description="...")]` pour exposer les descriptions dans Cline et les clients MCP
+- 🏥 **Endpoint `/health` simplifié** — Format compact aligné sur live-memory : `{"status": "ok", "service": "graph-memory", "version": "1.4.0", "transport": "streamable-http"}`
+- 🔍 **Scripts de vérification** — `scripts/check_param_descriptions.py` (analyse statique) et `scripts/check_mcp_tools_api.py` (vérification live via MCP `tools/list`)
 
 ### 🔄 Migration SSE → Streamable HTTP (issue #1)
 
