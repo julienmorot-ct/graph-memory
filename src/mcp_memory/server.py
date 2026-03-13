@@ -64,6 +64,7 @@ def get_graph():
     global _graph_service
     if _graph_service is None:
         from .core.graph import get_graph_service
+
         _graph_service = get_graph_service()
     return _graph_service
 
@@ -73,6 +74,7 @@ def get_storage():
     global _storage_service
     if _storage_service is None:
         from .core.storage import get_storage_service
+
         _storage_service = get_storage_service()
     return _storage_service
 
@@ -82,6 +84,7 @@ def get_extractor():
     global _extractor_service
     if _extractor_service is None:
         from .core.extractor import get_extractor_service
+
         _extractor_service = get_extractor_service()
     return _extractor_service
 
@@ -91,6 +94,7 @@ def get_tokens():
     global _token_manager
     if _token_manager is None:
         from .auth.token_manager import get_token_manager
+
         _token_manager = get_token_manager()
     return _token_manager
 
@@ -100,6 +104,7 @@ def get_embedder():
     global _embedding_service
     if _embedding_service is None:
         from .core.embedder import get_embedding_service
+
         _embedding_service = get_embedding_service()
     return _embedding_service
 
@@ -109,6 +114,7 @@ def get_chunker():
     global _chunker
     if _chunker is None:
         from .core.chunker import get_chunker as _get_chunker
+
         _chunker = _get_chunker()
     return _chunker
 
@@ -118,17 +124,20 @@ def get_vector_store():
     global _vector_store
     if _vector_store is None:
         from .core.vector_store import get_vector_store as _get_vs
+
         _vector_store = _get_vs()
     return _vector_store
 
 
 _backup_service = None
 
+
 def get_backup():
     """Lazy-load BackupService."""
     global _backup_service
     if _backup_service is None:
         from .core.backup import get_backup_service
+
         _backup_service = get_backup_service()
     return _backup_service
 
@@ -137,24 +146,28 @@ def get_backup():
 # OUTILS MCP - Gestion des Mémoires
 # =============================================================================
 
+
 @mcp.tool()
 async def memory_create(
     memory_id: Annotated[str, Field(description="Identifiant unique de la mémoire (ex: 'quoteflow-legal')")],
     name: Annotated[str, Field(description="Nom lisible de la mémoire")],
-    ontology: Annotated[str, Field(description="Nom de l'ontologie à utiliser (ex: legal, cloud, managed-services, technical, presales)")],
-    description: Annotated[str | None, Field(default=None, description="Description optionnelle de la mémoire")] = None
+    ontology: Annotated[
+        str,
+        Field(description="Nom de l'ontologie à utiliser (ex: legal, cloud, managed-services, technical, presales)"),
+    ],
+    description: Annotated[str | None, Field(default=None, description="Description optionnelle de la mémoire")] = None,
 ) -> dict:
     """
     Crée une nouvelle mémoire (namespace isolé).
-    
+
     L'ontologie est OBLIGATOIRE et copiée sur S3 pour persistance et versioning.
-    
+
     Args:
         memory_id: Identifiant unique (ex: "quoteflow-legal")
         name: Nom lisible de la mémoire
         ontology: Nom de l'ontologie à utiliser (OBLIGATOIRE: legal, cloud, managed-services, technical)
         description: Description optionnelle
-        
+
     Returns:
         Informations sur la mémoire créée
     """
@@ -174,7 +187,10 @@ async def memory_create(
                 # Token restreint, la mémoire n'est pas dans la liste
                 # → On autorise la création et on l'ajoutera automatiquement au token
                 _auto_add_to_token = True
-                print(f"🔑 [Auth] memory_create: '{memory_id}' sera auto-ajouté au token de '{auth.get('client_name')}'", file=sys.stderr)
+                print(
+                    f"🔑 [Auth] memory_create: '{memory_id}' sera auto-ajouté au token de '{auth.get('client_name')}'",
+                    file=sys.stderr,
+                )
             elif not allowed:
                 # memory_ids vide = accès à tout → pas besoin d'auto-add
                 pass
@@ -189,26 +205,25 @@ async def memory_create(
 
         # Vérifier que l'ontologie existe et la récupérer
         from .core.ontology import get_ontology_manager
+
         ontology_manager = get_ontology_manager()
         ontology_data = ontology_manager.get_ontology(ontology)
 
         if not ontology_data:
             available = [o["name"] for o in ontology_manager.list_ontologies()]
-            return {
-                "status": "error",
-                "message": f"Ontologie '{ontology}' non trouvée. Disponibles: {available}"
-            }
+            return {"status": "error", "message": f"Ontologie '{ontology}' non trouvée. Disponibles: {available}"}
 
         # Stocker l'ontologie sur S3 pour la mémoire
         import yaml
+
         ontology_yaml = yaml.dump(ontology_data, allow_unicode=True, default_flow_style=False)
-        ontology_bytes = ontology_yaml.encode('utf-8')
+        ontology_bytes = ontology_yaml.encode("utf-8")
 
         ontology_s3_result = await get_storage().upload_document(
             memory_id=memory_id,
             filename=f"_ontology_{ontology}.yaml",
             content=ontology_bytes,
-            metadata={"type": "ontology", "ontology_name": ontology}
+            metadata={"type": "ontology", "ontology_name": ontology},
         )
 
         print(f"📝 [Memory] Ontologie '{ontology}' stockée: {ontology_s3_result['uri']}", file=sys.stderr)
@@ -219,20 +234,20 @@ async def memory_create(
             name=name,
             description=description,
             ontology=ontology,
-            ontology_uri=ontology_s3_result["uri"]
+            ontology_uri=ontology_s3_result["uri"],
         )
 
         # Auto-ajouter la mémoire au token si nécessaire (isolation multi-tenant)
         if _auto_add_to_token and auth and auth.get("token_hash"):
             try:
-                await get_tokens().update_token_memories(
-                    token_hash=auth["token_hash"],
-                    add_memories=[memory_id]
-                )
+                await get_tokens().update_token_memories(token_hash=auth["token_hash"], add_memories=[memory_id])
                 # Mettre à jour le contexte auth en mémoire pour la session courante
                 auth["memory_ids"].append(memory_id)
                 current_auth.set(auth)
-                print(f"🔑 [Auth] memory_create: '{memory_id}' auto-ajouté au token de '{auth.get('client_name')}'", file=sys.stderr)
+                print(
+                    f"🔑 [Auth] memory_create: '{memory_id}' auto-ajouté au token de '{auth.get('client_name')}'",
+                    file=sys.stderr,
+                )
             except Exception as e:
                 print(f"⚠️ [Auth] Impossible d'auto-ajouter '{memory_id}' au token: {e}", file=sys.stderr)
 
@@ -242,7 +257,7 @@ async def memory_create(
             "name": memory.name,
             "description": memory.description,
             "ontology": memory.ontology,
-            "ontology_uri": ontology_s3_result["uri"]
+            "ontology_uri": ontology_s3_result["uri"],
         }
     except ValueError as e:
         return {"status": "error", "message": str(e)}
@@ -252,17 +267,17 @@ async def memory_create(
 
 @mcp.tool()
 async def memory_delete(
-    memory_id: Annotated[str, Field(description="ID de la mémoire à supprimer (⚠️ irréversible)")]
+    memory_id: Annotated[str, Field(description="ID de la mémoire à supprimer (⚠️ irréversible)")],
 ) -> dict:
     """
     Supprime une mémoire et tout son contenu (graphe + S3).
-    
+
     ⚠️ ATTENTION: Cette opération est irréversible !
     Supprime le namespace Neo4j ET tous les fichiers S3 associés.
-    
+
     Args:
         memory_id: ID de la mémoire à supprimer
-        
+
     Returns:
         Statut de la suppression avec détails S3
     """
@@ -287,7 +302,10 @@ async def memory_delete(
         s3_result = {"deleted_count": 0, "error_count": 0}
         try:
             s3_result = await get_storage().delete_prefix(f"{memory_id}/")
-            print(f"🗑️ [S3] Nettoyage mémoire {memory_id}: {s3_result['deleted_count']} fichiers supprimés", file=sys.stderr)
+            print(
+                f"🗑️ [S3] Nettoyage mémoire {memory_id}: {s3_result['deleted_count']} fichiers supprimés",
+                file=sys.stderr,
+            )
         except Exception as e:
             print(f"⚠️ [S3] Erreur nettoyage S3 pour {memory_id}: {e}", file=sys.stderr)
 
@@ -300,7 +318,7 @@ async def memory_delete(
                 "memory_id": memory_id,
                 "qdrant_collection_deleted": qdrant_deleted,
                 "s3_files_deleted": s3_result.get("deleted_count", 0),
-                "s3_errors": s3_result.get("error_count", 0)
+                "s3_errors": s3_result.get("error_count", 0),
             }
         return {"status": "not_found", "memory_id": memory_id}
     except Exception as e:
@@ -311,10 +329,10 @@ async def memory_delete(
 async def memory_list() -> dict:
     """
     Liste les mémoires accessibles au client.
-    
+
     Un client non-admin ne voit que les mémoires autorisées par son token.
     Un admin ou un accès localhost voit toutes les mémoires.
-    
+
     Returns:
         Liste des mémoires avec leurs métadonnées
     """
@@ -338,25 +356,23 @@ async def memory_list() -> dict:
                     "name": m.name,
                     "description": m.description,
                     "ontology": m.ontology,
-                    "created_at": m.created_at.isoformat() if m.created_at else None
+                    "created_at": m.created_at.isoformat() if m.created_at else None,
                 }
                 for m in memories
-            ]
+            ],
         }
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
 
 @mcp.tool()
-async def memory_stats(
-    memory_id: Annotated[str, Field(description="ID de la mémoire")]
-) -> dict:
+async def memory_stats(memory_id: Annotated[str, Field(description="ID de la mémoire")]) -> dict:
     """
     Récupère les statistiques d'une mémoire.
-    
+
     Args:
         memory_id: ID de la mémoire
-        
+
     Returns:
         Statistiques (documents, entités, relations, top entités)
     """
@@ -373,7 +389,7 @@ async def memory_stats(
             "document_count": stats.document_count,
             "entity_count": stats.entity_count,
             "relation_count": stats.relation_count,
-            "top_entities": stats.top_entities
+            "top_entities": stats.top_entities,
         }
     except Exception as e:
         return {"status": "error", "message": str(e)}
@@ -383,32 +399,41 @@ async def memory_stats(
 # OUTILS MCP - Ingestion de Documents
 # =============================================================================
 
+
 @mcp.tool()
 async def memory_ingest(
     memory_id: Annotated[str, Field(description="ID de la mémoire cible")],
     content_base64: Annotated[str, Field(description="Contenu du document encodé en base64")],
     filename: Annotated[str, Field(description="Nom du fichier (ex: 'contrat.pdf', 'notes.md')")],
-    metadata: Annotated[dict[str, Any] | None, Field(default=None, description="Métadonnées additionnelles (clé/valeur libre)")] = None,
-    force: Annotated[bool, Field(default=False, description="Si true, réingère même si le document existe déjà (dédup SHA-256)")] = False,
-    source_path: Annotated[str | None, Field(default=None, description="Chemin d'origine du fichier (ex: 'legal/contracts/CGA.pdf')")] = None,
-    source_modified_at: Annotated[str | None, Field(default=None, description="Date de modification source ISO 8601 (ex: '2026-01-15T10:30:00')")] = None,
-    ctx: Context | None = None
+    metadata: Annotated[
+        dict[str, Any] | None, Field(default=None, description="Métadonnées additionnelles (clé/valeur libre)")
+    ] = None,
+    force: Annotated[
+        bool, Field(default=False, description="Si true, réingère même si le document existe déjà (dédup SHA-256)")
+    ] = False,
+    source_path: Annotated[
+        str | None, Field(default=None, description="Chemin d'origine du fichier (ex: 'legal/contracts/CGA.pdf')")
+    ] = None,
+    source_modified_at: Annotated[
+        str | None, Field(default=None, description="Date de modification source ISO 8601 (ex: '2026-01-15T10:30:00')")
+    ] = None,
+    ctx: Context | None = None,
 ) -> dict:
     """
     Ingère un document dans une mémoire.
-    
+
     Le document est:
     1. Stocké sur S3
     2. Analysé par le LLM pour extraire entités/relations
     3. Les entités et relations sont ajoutées au graphe
-    
+
     Métadonnées enrichies stockées sur le nœud Document :
     - hash SHA-256 (déduplication)
     - taille en bytes, longueur du texte extrait
     - type de fichier (extension)
     - chemin source et date de modification source (si fournis)
     - stats d'extraction (entités, relations, chunks)
-    
+
     Args:
         memory_id: ID de la mémoire cible
         content_base64: Contenu du document encodé en base64
@@ -417,13 +442,14 @@ async def memory_ingest(
         force: Si True, réingère même si le document existe déjà
         source_path: Chemin complet d'origine du fichier (ex: "legal/contracts/CGA.pdf")
         source_modified_at: Date de dernière modification du fichier source (ISO 8601, ex: "2026-01-15T10:30:00")
-        
+
     Returns:
         Résultat de l'ingestion avec statistiques
     """
     try:
         import gc
         import time as _time
+
         _t0 = _time.monotonic()
         _steps_log = []
 
@@ -431,6 +457,7 @@ async def memory_ingest(
             """Retourne l'usage mémoire RSS du processus en MB."""
             try:
                 import resource
+
                 return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / (1024 * 1024)  # macOS = bytes
             except Exception:
                 return 0
@@ -476,28 +503,28 @@ async def memory_ingest(
                 "status": "already_exists",
                 "document_id": existing.id,
                 "filename": existing.filename,
-                "message": "Document déjà ingéré (utilisez force=true pour réingérer)"
+                "message": "Document déjà ingéré (utilisez force=true pour réingérer)",
             }
 
         # Si force=True et document existant, supprimer l'ancien d'abord
         if existing and force:
             await _log("🔄 Suppression de l'ancienne version...")
             delete_result = await get_graph().delete_document(memory_id, existing.id)
-            print(f"🔄 [Ingest] Ancien supprimé: {delete_result.get('entities_deleted', 0)} entités orphelines, "
-                  f"{delete_result.get('relations_deleted', 0)} relations", file=sys.stderr)
+            print(
+                f"🔄 [Ingest] Ancien supprimé: {delete_result.get('entities_deleted', 0)} entités orphelines, "
+                f"{delete_result.get('relations_deleted', 0)} relations",
+                file=sys.stderr,
+            )
 
         # Upload vers S3
         await _log("📤 Upload S3...")
         s3_result = await get_storage().upload_document(
-            memory_id=memory_id,
-            filename=filename,
-            content=content,
-            metadata=metadata
+            memory_id=memory_id, filename=filename, content=content, metadata=metadata
         )
         await _log("✅ Upload S3 terminé")
 
         # Extraire le texte du document
-        file_ext = filename.lower().rsplit('.', 1)[-1] if '.' in filename else ''
+        file_ext = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
         await _log(f"📄 Extraction texte ({file_ext})...")
         text = _extract_text(content, filename)
 
@@ -505,7 +532,7 @@ async def memory_ingest(
             return {
                 "status": "warning",
                 "message": "Document uploadé mais extraction texte impossible",
-                "s3_uri": s3_result["uri"]
+                "s3_uri": s3_result["uri"],
             }
 
         await _log(f"📄 Texte extrait: {len(text)} caractères")
@@ -519,7 +546,7 @@ async def memory_ingest(
             return {
                 "status": "error",
                 "message": f"La mémoire '{memory_id}' n'a pas d'ontologie définie. "
-                           f"Recréez-la avec une ontologie valide."
+                f"Recréez-la avec une ontologie valide.",
             }
 
         # Progress callback pour l'extracteur → route vers ctx.info()
@@ -548,7 +575,7 @@ async def memory_ingest(
         await _log(f"✅ Extraction terminée: {len(extraction.entities)} entités, {len(extraction.relations)} relations")
 
         # Déduire le type de fichier depuis l'extension
-        file_ext = filename.lower().rsplit('.', 1)[-1] if '.' in filename else ''
+        file_ext = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
 
         # Créer le document dans le graphe avec métadonnées enrichies
         await _log("📊 Stockage dans le graphe Neo4j...")
@@ -564,14 +591,12 @@ async def memory_ingest(
             source_modified_at=source_modified_at,
             size_bytes=content_size,
             text_length=len(text),
-            content_type=file_ext
+            content_type=file_ext,
         )
 
         # Ajouter les entités et relations
         graph_result = await get_graph().add_entities_and_relations(
-            memory_id=memory_id,
-            doc_id=doc_id,
-            extraction=extraction
+            memory_id=memory_id, doc_id=doc_id, extraction=extraction
         )
 
         # === RAG Vectoriel : Chunking + Embedding + Qdrant (synchrone strict) ===
@@ -594,6 +619,7 @@ async def memory_ingest(
             await _log("🧩 Chunking sémantique en cours...")
             sys.stderr.flush()
             import asyncio
+
             loop = asyncio.get_event_loop()
             chunks = await loop.run_in_executor(None, get_chunker().chunk_document, text, filename)
             await _log(f"🧩 Chunking terminé: {len(chunks)} chunks créés")
@@ -633,11 +659,7 @@ async def memory_ingest(
                 await _log(f"📦 Stockage Qdrant ({len(all_embeddings)} vecteurs)...")
                 sys.stderr.flush()
                 chunks_stored = await get_vector_store().store_chunks(
-                    memory_id=memory_id,
-                    doc_id=doc_id,
-                    filename=filename,
-                    chunks=chunks,
-                    embeddings=all_embeddings
+                    memory_id=memory_id, doc_id=doc_id, filename=filename, chunks=chunks, embeddings=all_embeddings
                 )
 
                 await _log(f"✅ RAG: {chunks_stored} chunks vectorisés")
@@ -650,6 +672,7 @@ async def memory_ingest(
 
         # Compter les types de relations
         from collections import Counter
+
         relation_types = Counter(r.type for r in extraction.relations)
         entity_types = Counter(e.type for e in extraction.entities)
 
@@ -685,31 +708,33 @@ async def memory_ingest(
 def _extract_text(content: bytes, filename: str) -> str | None:
     """
     Extrait le texte d'un document.
-    
+
     Formats supportés: txt, md, html, docx, pdf, csv
     """
-    ext = filename.lower().split('.')[-1] if '.' in filename else ''
+    ext = filename.lower().split(".")[-1] if "." in filename else ""
 
     try:
         # Texte brut et Markdown
-        if ext in ('txt', 'md'):
-            return content.decode('utf-8', errors='ignore')
+        if ext in ("txt", "md"):
+            return content.decode("utf-8", errors="ignore")
 
         # HTML
-        elif ext in ('html', 'htm'):
+        elif ext in ("html", "htm"):
             from bs4 import BeautifulSoup
-            soup = BeautifulSoup(content.decode('utf-8', errors='ignore'), 'html.parser')
+
+            soup = BeautifulSoup(content.decode("utf-8", errors="ignore"), "html.parser")
             # Supprimer scripts et styles
             for script in soup(["script", "style"]):
                 script.decompose()
-            text = soup.get_text(separator='\n', strip=True)
+            text = soup.get_text(separator="\n", strip=True)
             return text
 
         # PDF
-        elif ext == 'pdf':
+        elif ext == "pdf":
             from io import BytesIO
 
             from pypdf import PdfReader
+
             reader = PdfReader(BytesIO(content))
             text_parts = []
             for page in reader.pages:
@@ -719,10 +744,11 @@ def _extract_text(content: bytes, filename: str) -> str | None:
             return "\n".join(text_parts)
 
         # DOCX (Word)
-        elif ext == 'docx':
+        elif ext == "docx":
             from io import BytesIO
 
             from docx import Document
+
             doc = Document(BytesIO(content))
 
             text_parts = []
@@ -742,12 +768,12 @@ def _extract_text(content: bytes, filename: str) -> str | None:
             return "\n".join(text_parts)
 
         # CSV
-        elif ext == 'csv':
+        elif ext == "csv":
             import csv
             from io import StringIO
 
             # Décoder le contenu
-            text_content = content.decode('utf-8', errors='ignore')
+            text_content = content.decode("utf-8", errors="ignore")
             reader = csv.reader(StringIO(text_content))
 
             rows = []
@@ -758,7 +784,7 @@ def _extract_text(content: bytes, filename: str) -> str | None:
 
         else:
             # Tenter de décoder comme texte (fallback)
-            return content.decode('utf-8', errors='ignore')
+            return content.decode("utf-8", errors="ignore")
 
     except Exception as e:
         print(f"⚠️ [Extract] Erreur extraction texte ({ext}): {e}", file=sys.stderr)
@@ -769,23 +795,24 @@ def _extract_text(content: bytes, filename: str) -> str | None:
 # OUTILS MCP - Recherche
 # =============================================================================
 
+
 @mcp.tool()
 async def memory_search(
     memory_id: Annotated[str, Field(description="ID de la mémoire")],
     query: Annotated[str, Field(description="Requête de recherche (texte libre)")],
-    limit: Annotated[int, Field(default=10, description="Nombre max de résultats (défaut: 10)")] = 10
+    limit: Annotated[int, Field(default=10, description="Nombre max de résultats (défaut: 10)")] = 10,
 ) -> dict:
     """
     Recherche dans une mémoire (graph-first).
-    
+
     Recherche les entités et documents correspondant à la requête.
     Utilise principalement le graphe, pas de RAG vectoriel.
-    
+
     Args:
         memory_id: ID de la mémoire
         query: Requête de recherche
         limit: Nombre max de résultats
-        
+
     Returns:
         Entités trouvées avec leurs documents liés
     """
@@ -801,21 +828,17 @@ async def memory_search(
         # Pour chaque entité, récupérer le contexte complet
         results = []
         for entity in entities:
-            context = await get_graph().get_entity_context(
-                memory_id, entity["name"], depth=1
+            context = await get_graph().get_entity_context(memory_id, entity["name"], depth=1)
+            results.append(
+                {"entity": entity, "documents": context.documents, "related_entities": context.related_entities}
             )
-            results.append({
-                "entity": entity,
-                "documents": context.documents,
-                "related_entities": context.related_entities
-            })
 
         return {
             "status": "ok",
             "query": query,
             "memory_id": memory_id,
             "result_count": len(results),
-            "results": results
+            "results": results,
         }
 
     except Exception as e:
@@ -826,19 +849,19 @@ async def memory_search(
 async def question_answer(
     memory_id: Annotated[str, Field(description="ID de la mémoire")],
     question: Annotated[str, Field(description="Question en langage naturel")],
-    limit: Annotated[int, Field(default=10, description="Nombre max d'entités à rechercher (défaut: 10)")] = 10
+    limit: Annotated[int, Field(default=10, description="Nombre max d'entités à rechercher (défaut: 10)")] = 10,
 ) -> dict:
     """
     Pose une question sur une mémoire et obtient une réponse basée sur le graphe.
-    
+
     Utilise le graphe de connaissances pour répondre à la question.
     Recherche les entités pertinentes puis génère une réponse avec le LLM.
-    
+
     Args:
         memory_id: ID de la mémoire
         question: Question en langage naturel
         limit: Nombre max d'entités à rechercher (défaut: 10)
-        
+
     Returns:
         Réponse générée avec les entités liées
     """
@@ -853,7 +876,7 @@ async def question_answer(
         entities = await get_graph().search_entities(memory_id, search_query=question, limit=limit)
 
         if entities:
-            entity_summary = ", ".join(f"{e['name']} ({e.get('type','?')})" for e in entities)
+            entity_summary = ", ".join(f"{e['name']} ({e.get('type', '?')})" for e in entities)
             print(f"📊 [Q&A] Graphe: {len(entities)} entités trouvées → {entity_summary}", file=sys.stderr)
         else:
             print("📊 [Q&A] Graphe: 0 entités trouvées → fallback RAG-only", file=sys.stderr)
@@ -871,8 +894,8 @@ async def question_answer(
             entity_doc_names = []
             for doc in ctx.documents:
                 if isinstance(doc, dict):
-                    doc_id = doc.get('id', '')
-                    doc_filename = doc.get('filename', doc_id)
+                    doc_id = doc.get("id", "")
+                    doc_filename = doc.get("filename", doc_id)
                     if doc_id:
                         if doc_id not in source_documents:
                             source_documents[doc_id] = {
@@ -884,13 +907,13 @@ async def question_answer(
             # Construire le contexte texte AVEC le document source
             doc_ref = f" [Source: {', '.join(entity_doc_names)}]" if entity_doc_names else ""
             ctx_text = f"- {entity['name']} ({entity.get('type', '?')}){doc_ref}"
-            if entity.get('description'):
+            if entity.get("description"):
                 ctx_text += f": {entity['description']}"
 
             for rel in ctx.relations:
                 ctx_text += f"\n  → {rel.get('type', 'RELATED_TO')}: {rel.get('description', '')}"
 
-            related = [r['name'] for r in ctx.related_entities]
+            related = [r["name"] for r in ctx.related_entities]
             if related:
                 ctx_text += f"\n  Lié à: {', '.join(related)}"
 
@@ -899,6 +922,7 @@ async def question_answer(
         # 3. === RAG vectoriel : Graph-Guided si entités trouvées, sinon RAG-only ===
         rag_context_parts = []
         rag_chunks_used = 0
+        rag_chunks = []  # chunk details for API consumers (benchmark, etc.)
         rag_mode = "graph-guided" if entities else "rag-only"
         try:
             # Collecter les doc_ids identifiés par le graphe (vide si aucune entité)
@@ -917,7 +941,7 @@ async def question_answer(
                 memory_id=memory_id,
                 query_embedding=query_embedding,
                 doc_ids=graph_doc_ids if graph_doc_ids else None,
-                limit=chunk_limit
+                limit=chunk_limit,
             )
 
             # Sauver tous les résultats avant filtrage (pour diagnostic)
@@ -932,6 +956,17 @@ async def question_answer(
             for cr in chunk_results:
                 rag_context_parts.append(cr.context_text)
                 rag_chunks_used += 1
+                rag_chunks.append(
+                    {
+                        "text": cr.chunk.text,
+                        "score": round(cr.score, 4),
+                        "doc_id": cr.chunk.doc_id or "",
+                        "filename": cr.chunk.filename or "?",
+                        "section_title": cr.chunk.section_title or "",
+                        "article_number": cr.chunk.article_number or "",
+                        "chunk_index": cr.chunk.index if hasattr(cr.chunk, "index") else 0,
+                    }
+                )
                 # Ajouter les docs trouvés par RAG au source_documents
                 if cr.chunk.doc_id and cr.chunk.doc_id not in source_documents:
                     source_documents[cr.chunk.doc_id] = {
@@ -939,16 +974,18 @@ async def question_answer(
                         "filename": cr.chunk.filename or "?",
                     }
 
-            print(f"🔍 [Q&A] RAG ({rag_mode}): {rag_chunks_used} chunks retenus"
-                  f" (seuil={score_threshold}, {filtered_out} filtrés sur {total_before})"
-                  f"{f' | graph-guided: {len(graph_doc_ids)} docs' if graph_doc_ids else ' | tous documents'}",
-                  file=sys.stderr)
+            print(
+                f"🔍 [Q&A] RAG ({rag_mode}): {rag_chunks_used} chunks retenus"
+                f" (seuil={score_threshold}, {filtered_out} filtrés sur {total_before})"
+                f"{f' | graph-guided: {len(graph_doc_ids)} docs' if graph_doc_ids else ' | tous documents'}",
+                file=sys.stderr,
+            )
 
             # Log détaillé : score + section + aperçu texte de chaque chunk RETENU
             for i, cr in enumerate(chunk_results):
                 section = cr.chunk.section_title or cr.chunk.article_number or "—"
-                preview = cr.chunk.text[:80].replace('\n', ' ').strip()
-                print(f"   📎 [{i+1}] score={cr.score:.4f} ✅ | {section} | \"{preview}...\"", file=sys.stderr)
+                preview = cr.chunk.text[:80].replace("\n", " ").strip()
+                print(f'   📎 [{i + 1}] score={cr.score:.4f} ✅ | {section} | "{preview}..."', file=sys.stderr)
 
             # Log des chunks FILTRÉS (sous le seuil) — diagnostic de pertinence RAG
             if filtered_out > 0:
@@ -956,8 +993,8 @@ async def question_answer(
                 filtered_chunks = [cr for cr in all_chunk_results if cr.score < score_threshold]
                 for i, cr in enumerate(filtered_chunks[:5]):  # Max 5 pour ne pas surcharger
                     section = cr.chunk.section_title or cr.chunk.article_number or "—"
-                    preview = cr.chunk.text[:60].replace('\n', ' ').strip()
-                    print(f"   📎 [F{i+1}] score={cr.score:.4f} ❌ | {section} | \"{preview}...\"", file=sys.stderr)
+                    preview = cr.chunk.text[:60].replace("\n", " ").strip()
+                    print(f'   📎 [F{i + 1}] score={cr.score:.4f} ❌ | {section} | "{preview}..."', file=sys.stderr)
 
         except Exception as e:
             print(f"⚠️ [Q&A] Erreur RAG vectoriel: {e}", file=sys.stderr)
@@ -970,13 +1007,12 @@ async def question_answer(
                 "answer": "Je n'ai pas trouvé d'informations pertinentes dans cette mémoire pour répondre à votre question.",
                 "entities": [],
                 "rag_chunks_used": 0,
-                "source_documents": []
+                "rag_chunks": [],
+                "source_documents": [],
             }
 
         # 4. Construire la liste des documents pour le prompt
-        doc_list = "\n".join(
-            f"  - {doc['filename']}" for doc in source_documents.values()
-        )
+        doc_list = "\n".join(f"  - {doc['filename']}" for doc in source_documents.values())
 
         # 5. Assembler le contexte final (graphe + RAG)
         graph_context = "\n".join(context_parts)
@@ -986,7 +1022,10 @@ async def question_answer(
         graph_ctx_len = len(graph_context) if graph_context else 0
         rag_ctx_len = len(rag_context) if rag_context else 0
         doc_count = len(source_documents)
-        print(f"📝 [Q&A] Contexte LLM: graphe={graph_ctx_len} chars, RAG={rag_ctx_len} chars, docs={doc_count}", file=sys.stderr)
+        print(
+            f"📝 [Q&A] Contexte LLM: graphe={graph_ctx_len} chars, RAG={rag_ctx_len} chars, docs={doc_count}",
+            file=sys.stderr,
+        )
 
         prompt = f"""Tu es un assistant expert qui répond à des questions basées sur un graphe de connaissances et des extraits de documents.
 
@@ -1018,8 +1057,9 @@ CONSIGNES :
             "answer": answer,
             "entities": entity_names,
             "rag_chunks_used": rag_chunks_used,
+            "rag_chunks": rag_chunks,
             "source_documents": list(source_documents.values()),
-            "context_used": graph_context
+            "context_used": graph_context,
         }
 
     except Exception as e:
@@ -1030,26 +1070,26 @@ CONSIGNES :
 async def memory_query(
     memory_id: Annotated[str, Field(description="ID de la mémoire")],
     query: Annotated[str, Field(description="Requête en langage naturel")],
-    limit: Annotated[int, Field(default=10, description="Nombre max d'entités à rechercher (défaut: 10)")] = 10
+    limit: Annotated[int, Field(default=10, description="Nombre max d'entités à rechercher (défaut: 10)")] = 10,
 ) -> dict:
     """
     Interroge une mémoire et retourne les données structurées SANS génération LLM.
-    
+
     Effectue la même recherche que question_answer (graphe + RAG vectoriel)
     mais retourne les données brutes structurées au lieu de crafter une réponse.
     Idéal pour les agents IA qui veulent construire leur propre réponse.
-    
+
     Pipeline :
     1. Recherche d'entités dans le graphe (fulltext + CONTAINS)
     2. Récupération du contexte de chaque entité (voisins, relations, documents)
     3. Recherche RAG vectorielle (graph-guided ou rag-only)
     4. Retour des données structurées (pas d'appel LLM)
-    
+
     Args:
         memory_id: ID de la mémoire
         query: Requête en langage naturel
         limit: Nombre max d'entités à rechercher (défaut: 10)
-        
+
     Returns:
         Données structurées : entités, relations, chunks RAG, documents sources, stats
     """
@@ -1064,7 +1104,7 @@ async def memory_query(
         entities = await get_graph().search_entities(memory_id, search_query=query, limit=limit)
 
         if entities:
-            entity_summary = ", ".join(f"{e['name']} ({e.get('type','?')})" for e in entities)
+            entity_summary = ", ".join(f"{e['name']} ({e.get('type', '?')})" for e in entities)
             print(f"📊 [Query] Graphe: {len(entities)} entités trouvées → {entity_summary}", file=sys.stderr)
         else:
             print("📊 [Query] Graphe: 0 entités trouvées → fallback RAG-only", file=sys.stderr)
@@ -1080,8 +1120,8 @@ async def memory_query(
             entity_docs = []
             for doc in ctx.documents:
                 if isinstance(doc, dict):
-                    doc_id = doc.get('id', '')
-                    doc_filename = doc.get('filename', doc_id)
+                    doc_id = doc.get("id", "")
+                    doc_filename = doc.get("filename", doc_id)
                     if doc_id:
                         if doc_id not in source_documents:
                             source_documents[doc_id] = {
@@ -1130,7 +1170,7 @@ async def memory_query(
                 memory_id=memory_id,
                 query_embedding=query_embedding,
                 doc_ids=graph_doc_ids if graph_doc_ids else None,
-                limit=chunk_limit
+                limit=chunk_limit,
             )
 
             total_before = len(chunk_results)
@@ -1138,15 +1178,17 @@ async def memory_query(
             rag_chunks_filtered = total_before - len(retained)
 
             for cr in retained:
-                rag_chunks.append({
-                    "text": cr.chunk.text,
-                    "score": round(cr.score, 4),
-                    "doc_id": cr.chunk.doc_id or "",
-                    "filename": cr.chunk.filename or "?",
-                    "section_title": cr.chunk.section_title or "",
-                    "article_number": cr.chunk.article_number or "",
-                    "chunk_index": cr.chunk.index if hasattr(cr.chunk, 'index') else 0,
-                })
+                rag_chunks.append(
+                    {
+                        "text": cr.chunk.text,
+                        "score": round(cr.score, 4),
+                        "doc_id": cr.chunk.doc_id or "",
+                        "filename": cr.chunk.filename or "?",
+                        "section_title": cr.chunk.section_title or "",
+                        "article_number": cr.chunk.article_number or "",
+                        "chunk_index": cr.chunk.index if hasattr(cr.chunk, "index") else 0,
+                    }
+                )
                 # Ajouter les docs trouvés par RAG
                 if cr.chunk.doc_id and cr.chunk.doc_id not in source_documents:
                     source_documents[cr.chunk.doc_id] = {
@@ -1154,9 +1196,11 @@ async def memory_query(
                         "filename": cr.chunk.filename or "?",
                     }
 
-            print(f"🔍 [Query] RAG ({rag_mode}): {len(retained)} chunks retenus"
-                  f" (seuil={score_threshold}, {rag_chunks_filtered} filtrés sur {total_before})",
-                  file=sys.stderr)
+            print(
+                f"🔍 [Query] RAG ({rag_mode}): {len(retained)} chunks retenus"
+                f" (seuil={score_threshold}, {rag_chunks_filtered} filtrés sur {total_before})",
+                file=sys.stderr,
+            )
 
         except Exception as e:
             print(f"⚠️ [Query] Erreur RAG vectoriel: {e}", file=sys.stderr)
@@ -1187,21 +1231,21 @@ async def memory_query(
 async def memory_get_context(
     memory_id: Annotated[str, Field(description="ID de la mémoire")],
     entity_name: Annotated[str, Field(description="Nom exact de l'entité à explorer")],
-    depth: Annotated[int, Field(default=1, description="Profondeur de traversée du graphe (1 = voisins directs)")] = 1
+    depth: Annotated[int, Field(default=1, description="Profondeur de traversée du graphe (1 = voisins directs)")] = 1,
 ) -> dict:
     """
     Récupère le contexte complet d'une entité.
-    
+
     Retourne tout ce qu'on sait sur une entité:
     - Documents qui la mentionnent
     - Entités reliées
     - Types de relations
-    
+
     Args:
         memory_id: ID de la mémoire
         entity_name: Nom de l'entité
         depth: Profondeur de traversée (1 = voisins directs)
-        
+
     Returns:
         Contexte complet de l'entité
     """
@@ -1211,9 +1255,7 @@ async def memory_get_context(
         if access_err:
             return access_err
 
-        context = await get_graph().get_entity_context(
-            memory_id, entity_name, depth
-        )
+        context = await get_graph().get_entity_context(memory_id, entity_name, depth)
 
         return {
             "status": "ok",
@@ -1222,7 +1264,7 @@ async def memory_get_context(
             "depth": context.depth,
             "documents": context.documents,
             "related_entities": context.related_entities,
-            "relations": context.relations
+            "relations": context.relations,
         }
 
     except Exception as e:
@@ -1233,26 +1275,34 @@ async def memory_get_context(
 # OUTILS MCP - Admin / Tokens
 # =============================================================================
 
+
 @mcp.tool()
 async def admin_create_token(
     client_name: Annotated[str, Field(description="Nom du client (ex: 'quoteflow', 'vela')")],
-    permissions: Annotated[list[str] | None, Field(default=None, description="Permissions : 'read', 'write', 'admin' (défaut: ['read', 'write'])")] = None,
-    memory_ids: Annotated[list[str] | None, Field(default=None, description="IDs des mémoires autorisées (vide = toutes)")] = None,
-    expires_in_days: Annotated[int | None, Field(default=None, description="Expiration en jours (optionnel, None = pas d'expiration)")] = None,
-    email: Annotated[str | None, Field(default=None, description="Adresse email du propriétaire du token")] = None
+    permissions: Annotated[
+        list[str] | None,
+        Field(default=None, description="Permissions : 'read', 'write', 'admin' (défaut: ['read', 'write'])"),
+    ] = None,
+    memory_ids: Annotated[
+        list[str] | None, Field(default=None, description="IDs des mémoires autorisées (vide = toutes)")
+    ] = None,
+    expires_in_days: Annotated[
+        int | None, Field(default=None, description="Expiration en jours (optionnel, None = pas d'expiration)")
+    ] = None,
+    email: Annotated[str | None, Field(default=None, description="Adresse email du propriétaire du token")] = None,
 ) -> dict:
     """
     Crée un nouveau token d'accès pour un client.
-    
+
     ⚠️ Le token retourné ne sera affiché qu'une seule fois !
-    
+
     Args:
         client_name: Nom du client (ex: "quoteflow")
         permissions: Permissions ["read", "write", "admin"]
         memory_ids: IDs des mémoires autorisées (vide = toutes)
         expires_in_days: Expiration en jours (optionnel)
         email: Adresse email du propriétaire (optionnel)
-        
+
     Returns:
         Token généré (à conserver précieusement)
     """
@@ -1267,7 +1317,7 @@ async def admin_create_token(
             permissions=permissions or ["read", "write"],
             memory_ids=memory_ids or [],
             expires_in_days=expires_in_days,
-            email=email
+            email=email,
         )
 
         return {
@@ -1277,7 +1327,7 @@ async def admin_create_token(
             "token": token,
             "permissions": permissions or ["read", "write"],
             "memory_ids": memory_ids or [],
-            "message": "⚠️ Conservez ce token, il ne sera plus affiché !"
+            "message": "⚠️ Conservez ce token, il ne sera plus affiché !",
         }
 
     except Exception as e:
@@ -1288,9 +1338,9 @@ async def admin_create_token(
 async def admin_list_tokens() -> dict:
     """
     Liste tous les tokens actifs.
-    
+
     Note: Les tokens eux-mêmes ne sont pas affichés, seulement leurs métadonnées.
-    
+
     Returns:
         Liste des tokens avec leurs infos
     """
@@ -1313,10 +1363,10 @@ async def admin_list_tokens() -> dict:
                     "memory_ids": t.memory_ids,
                     "created_at": t.created_at.isoformat() if t.created_at else None,
                     "expires_at": t.expires_at.isoformat() if t.expires_at else None,
-                    "token_hash": t.token_hash
+                    "token_hash": t.token_hash,
                 }
                 for t in tokens
-            ]
+            ],
         }
 
     except Exception as e:
@@ -1325,14 +1375,14 @@ async def admin_list_tokens() -> dict:
 
 @mcp.tool()
 async def admin_revoke_token(
-    token_hash_prefix: Annotated[str, Field(description="Début du hash du token à révoquer (8+ caractères)")]
+    token_hash_prefix: Annotated[str, Field(description="Début du hash du token à révoquer (8+ caractères)")],
 ) -> dict:
     """
     Révoque un token.
-    
+
     Args:
         token_hash_prefix: Début du hash du token (8+ caractères)
-        
+
     Returns:
         Statut de la révocation
     """
@@ -1357,10 +1407,7 @@ async def admin_revoke_token(
         success = await get_tokens().revoke_token(matching[0].token_hash)
 
         if success:
-            return {
-                "status": "ok",
-                "message": f"Token révoqué pour '{matching[0].client_name}'"
-            }
+            return {"status": "ok", "message": f"Token révoqué pour '{matching[0].client_name}'"}
         return {"status": "error", "message": "Échec révocation"}
 
     except Exception as e:
@@ -1370,32 +1417,45 @@ async def admin_revoke_token(
 @mcp.tool()
 async def admin_update_token(
     token_hash_prefix: Annotated[str, Field(description="Début du hash du token (8+ caractères)")],
-    add_memories: Annotated[list[str] | None, Field(default=None, description="Mémoires à ajouter (ex: ['JURIDIQUE', 'CLOUD'])")] = None,
-    remove_memories: Annotated[list[str] | None, Field(default=None, description="Mémoires à retirer (ex: ['JURIDIQUE'])")] = None,
-    set_memories: Annotated[list[str] | None, Field(default=None, description="Remplacer la liste (ex: ['CLOUD'], ou [] pour tout autoriser)")] = None,
-    set_permissions: Annotated[list[str] | None, Field(default=None, description="Remplacer les permissions (ex: ['admin', 'read', 'write'] pour promouvoir en admin)")] = None
+    add_memories: Annotated[
+        list[str] | None, Field(default=None, description="Mémoires à ajouter (ex: ['JURIDIQUE', 'CLOUD'])")
+    ] = None,
+    remove_memories: Annotated[
+        list[str] | None, Field(default=None, description="Mémoires à retirer (ex: ['JURIDIQUE'])")
+    ] = None,
+    set_memories: Annotated[
+        list[str] | None,
+        Field(default=None, description="Remplacer la liste (ex: ['CLOUD'], ou [] pour tout autoriser)"),
+    ] = None,
+    set_permissions: Annotated[
+        list[str] | None,
+        Field(
+            default=None,
+            description="Remplacer les permissions (ex: ['admin', 'read', 'write'] pour promouvoir en admin)",
+        ),
+    ] = None,
 ) -> dict:
     """
     Met à jour les mémoires autorisées et/ou les permissions d'un token.
-    
+
     Gestion des mémoires (mutuellement exclusifs avec set_memories) :
     - add_memories: Ajoute des mémoires à la liste existante
     - remove_memories: Retire des mémoires de la liste existante
     - set_memories: Remplace toute la liste ([] = accès à TOUTES les mémoires)
-    
+
     Gestion des permissions :
     - set_permissions: Remplace les permissions (ex: ["admin", "read", "write"] pour promouvoir en admin)
-    
+
     Permissions valides : 'read', 'write', 'admin'.
     Un token avec la permission 'admin' a accès à TOUS les outils, y compris la gestion des tokens.
-    
+
     Args:
         token_hash_prefix: Début du hash du token (8+ caractères)
         add_memories: Mémoires à ajouter (ex: ["JURIDIQUE", "CLOUD"])
         remove_memories: Mémoires à retirer (ex: ["JURIDIQUE"])
         set_memories: Remplacer toute la liste (ex: ["CLOUD"], ou [] pour tout autoriser)
         set_permissions: Remplacer les permissions (ex: ["admin", "read", "write"])
-        
+
     Returns:
         Anciennes et nouvelles mémoires/permissions autorisées
     """
@@ -1424,12 +1484,11 @@ async def admin_update_token(
             if invalid:
                 return {
                     "status": "error",
-                    "message": f"Permissions invalides: {invalid}. Valides: {sorted(valid_perms)}"
+                    "message": f"Permissions invalides: {invalid}. Valides: {sorted(valid_perms)}",
                 }
 
             perm_result = await get_tokens().update_token_permissions(
-                token_hash=matching[0].token_hash,
-                permissions=set_permissions
+                token_hash=matching[0].token_hash, permissions=set_permissions
             )
             if perm_result:
                 result_parts["previous_permissions"] = perm_result["previous_permissions"]
@@ -1439,7 +1498,9 @@ async def admin_update_token(
         has_memory_update = add_memories or remove_memories or set_memories is not None
         if has_memory_update:
             # Vérifier que les mémoires existent (si on en ajoute)
-            memories_to_check = (add_memories or []) + (set_memories or []) if set_memories is not None else (add_memories or [])
+            memories_to_check = (
+                (add_memories or []) + (set_memories or []) if set_memories is not None else (add_memories or [])
+            )
             if memories_to_check:
                 existing_memories = await get_graph().list_memories()
                 existing_ids = {m.id for m in existing_memories}
@@ -1447,21 +1508,24 @@ async def admin_update_token(
                 if unknown:
                     return {
                         "status": "error",
-                        "message": f"Mémoires inconnues: {unknown}. Disponibles: {sorted(existing_ids)}"
+                        "message": f"Mémoires inconnues: {unknown}. Disponibles: {sorted(existing_ids)}",
                     }
 
             mem_result = await get_tokens().update_token_memories(
                 token_hash=matching[0].token_hash,
                 add_memories=add_memories,
                 remove_memories=remove_memories,
-                set_memories=set_memories
+                set_memories=set_memories,
             )
             if mem_result:
                 result_parts["previous_memories"] = mem_result["previous_memories"]
                 result_parts["current_memories"] = mem_result["current_memories"]
 
         if not result_parts:
-            return {"status": "error", "message": "Aucune modification demandée (spécifiez set_permissions, add_memories, remove_memories ou set_memories)"}
+            return {
+                "status": "error",
+                "message": "Aucune modification demandée (spécifiez set_permissions, add_memories, remove_memories ou set_memories)",
+            }
 
         # Construire le message
         messages = []
@@ -1483,7 +1547,7 @@ async def admin_update_token(
             "client_name": matching[0].client_name,
             "token_hash_prefix": matching[0].token_hash[:8] + "...",
             **result_parts,
-            "message": " | ".join(messages)
+            "message": " | ".join(messages),
         }
 
     except Exception as e:
@@ -1494,21 +1558,24 @@ async def admin_update_token(
 # OUTILS MCP - Diagnostic
 # =============================================================================
 
+
 @mcp.tool()
 async def memory_graph(
     memory_id: Annotated[str, Field(description="ID de la mémoire")],
-    format: Annotated[str, Field(default="full", description="Format : 'full' (tout), 'nodes', 'edges', 'documents'")] = "full"
+    format: Annotated[
+        str, Field(default="full", description="Format : 'full' (tout), 'nodes', 'edges', 'documents'")
+    ] = "full",
 ) -> dict:
     """
     Récupère le graphe complet d'une mémoire (entités, relations et documents).
-    
+
     Utile pour visualiser ou exporter le graphe de connaissances.
     Inclut les documents avec leur URI S3 pour permettre la récupération.
-    
+
     Args:
         memory_id: ID de la mémoire
         format: "full" (tout), "nodes" (entités+docs), "edges" (relations), "documents" (liste docs avec URI S3)
-        
+
     Returns:
         nodes: Liste des entités et documents avec leurs propriétés
         edges: Liste des relations entre entités et documents
@@ -1527,21 +1594,21 @@ async def memory_graph(
                 "status": "ok",
                 "memory_id": memory_id,
                 "node_count": len(graph_data["nodes"]),
-                "nodes": graph_data["nodes"]
+                "nodes": graph_data["nodes"],
             }
         elif format == "edges":
             return {
                 "status": "ok",
                 "memory_id": memory_id,
                 "edge_count": len(graph_data["edges"]),
-                "edges": graph_data["edges"]
+                "edges": graph_data["edges"],
             }
         elif format == "documents":
             return {
                 "status": "ok",
                 "memory_id": memory_id,
                 "document_count": len(graph_data["documents"]),
-                "documents": graph_data["documents"]
+                "documents": graph_data["documents"],
             }
         else:  # full
             return {
@@ -1552,7 +1619,7 @@ async def memory_graph(
                 "document_count": len(graph_data["documents"]),
                 "nodes": graph_data["nodes"],
                 "edges": graph_data["edges"],
-                "documents": graph_data["documents"]
+                "documents": graph_data["documents"],
             }
 
     except Exception as e:
@@ -1560,15 +1627,13 @@ async def memory_graph(
 
 
 @mcp.tool()
-async def document_list(
-    memory_id: Annotated[str, Field(description="ID de la mémoire")]
-) -> dict:
+async def document_list(memory_id: Annotated[str, Field(description="ID de la mémoire")]) -> dict:
     """
     Liste tous les documents d'une mémoire.
-    
+
     Args:
         memory_id: ID de la mémoire
-        
+
     Returns:
         Liste des documents avec leurs métadonnées
     """
@@ -1581,12 +1646,7 @@ async def document_list(
         graph_data = await get_graph().get_full_graph(memory_id)
         docs = graph_data.get("documents", [])
 
-        return {
-            "status": "ok",
-            "memory_id": memory_id,
-            "count": len(docs),
-            "documents": docs
-        }
+        return {"status": "ok", "memory_id": memory_id, "count": len(docs), "documents": docs}
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
@@ -1595,19 +1655,21 @@ async def document_list(
 async def document_get(
     memory_id: Annotated[str, Field(description="ID de la mémoire")],
     document_id: Annotated[str, Field(description="ID du document (UUID)")],
-    include_content: Annotated[bool, Field(default=False, description="Si true, télécharge et inclut le contenu S3 (lent)")] = False
+    include_content: Annotated[
+        bool, Field(default=False, description="Si true, télécharge et inclut le contenu S3 (lent)")
+    ] = False,
 ) -> dict:
     """
     Récupère les métadonnées d'un document, et optionnellement son contenu.
-    
+
     Par défaut, retourne uniquement les métadonnées (rapide, pas de téléchargement S3).
     Passez include_content=True pour télécharger et inclure le contenu du document.
-    
+
     Args:
         memory_id: ID de la mémoire
         document_id: ID du document
         include_content: Si True, télécharge et inclut le contenu S3 (lent). Défaut: False.
-        
+
     Returns:
         Métadonnées du document (et contenu si demandé)
     """
@@ -1644,7 +1706,7 @@ async def document_get(
             try:
                 uri = doc_info["uri"]
                 content_bytes = await get_storage().download_document(memory_id, uri)
-                result["content"] = content_bytes.decode('utf-8', errors='ignore')
+                result["content"] = content_bytes.decode("utf-8", errors="ignore")
             except Exception as e:
                 result["content"] = f"[Erreur lecture S3: {e}]"
 
@@ -1656,22 +1718,22 @@ async def document_get(
 @mcp.tool()
 async def document_delete(
     memory_id: Annotated[str, Field(description="ID de la mémoire")],
-    document_id: Annotated[str, Field(description="ID du document à supprimer (UUID)")]
+    document_id: Annotated[str, Field(description="ID du document à supprimer (UUID)")],
 ) -> dict:
     """
     Supprime un document du graphe ET de S3.
-    
+
     Supprime :
     - Le fichier S3 associé
     - Le nœud Document dans Neo4j
     - Les relations MENTIONS du document
     - Les entités orphelines (non mentionnées par d'autres documents)
     - Les relations RELATED_TO impliquant des entités orphelines
-    
+
     Args:
         memory_id: ID de la mémoire
         document_id: ID du document à supprimer
-        
+
     Returns:
         Statut de la suppression avec compteurs (graphe + S3)
     """
@@ -1711,7 +1773,7 @@ async def document_delete(
                 "relations_deleted": result.get("relations_deleted", 0),
                 "entities_deleted": result.get("entities_deleted", 0),
                 "qdrant_chunks_deleted": qdrant_chunks_deleted,
-                "s3_deleted": s3_deleted
+                "s3_deleted": s3_deleted,
             }
         return {"status": "error", "message": "Document non trouvé"}
 
@@ -1723,46 +1785,45 @@ async def document_delete(
 async def ontology_list() -> dict:
     """
     Liste toutes les ontologies disponibles.
-    
+
     Les ontologies définissent les règles d'extraction pour différents domaines.
     Chaque mémoire DOIT avoir une ontologie. Exemples:
     - legal: Documents juridiques et contractuels
     - cloud: Infrastructure cloud et certifications
     - managed-services: Infogérance et services managés
     - technical: Documentation technique et API
-    
+
     Returns:
         Liste des ontologies avec leurs métadonnées
     """
     try:
         from .core.ontology import get_ontology_manager
+
         ontology_manager = get_ontology_manager()
         ontologies = ontology_manager.list_ontologies()
 
-        return {
-            "status": "ok",
-            "count": len(ontologies),
-            "ontologies": ontologies
-        }
+        return {"status": "ok", "count": len(ontologies), "ontologies": ontologies}
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
 
 @mcp.tool()
 async def storage_check(
-    memory_id: Annotated[str | None, Field(default=None, description="ID d'une mémoire spécifique (optionnel, toutes si omis)")] = None
+    memory_id: Annotated[
+        str | None, Field(default=None, description="ID d'une mémoire spécifique (optionnel, toutes si omis)")
+    ] = None,
 ) -> dict:
     """
     Vérifie la cohérence entre le graphe Neo4j et le stockage S3.
-    
+
     Pour chaque mémoire (ou une mémoire spécifique) :
     1. Vérifie que chaque document du graphe est accessible sur S3
     2. Détecte les fichiers orphelins sur S3 (pas de référence dans le graphe)
     3. Retourne un rapport complet avec statistiques
-    
+
     Args:
         memory_id: ID d'une mémoire spécifique (optionnel, toutes si omis)
-        
+
     Returns:
         Rapport de cohérence S3/Graphe avec documents OK, manquants et orphelins
     """
@@ -1787,9 +1848,9 @@ async def storage_check(
             memories = await get_graph().list_memories()
 
         # 2. Collecter toutes les URIs des documents référencés dans le graphe
-        graph_uris = set()          # URIs référencées dans Neo4j
-        graph_uri_details = {}      # URI -> {memory_id, filename, doc_id}
-        memory_prefixes = set()     # Préfixes S3 des mémoires connues
+        graph_uris = set()  # URIs référencées dans Neo4j
+        graph_uri_details = {}  # URI -> {memory_id, filename, doc_id}
+        memory_prefixes = set()  # Préfixes S3 des mémoires connues
 
         for mem in memories:
             mid = mem.id
@@ -1803,7 +1864,7 @@ async def storage_check(
                     graph_uri_details[uri] = {
                         "memory_id": mid,
                         "filename": doc.get("filename", "?"),
-                        "doc_id": doc.get("id", "?")
+                        "doc_id": doc.get("id", "?"),
                     }
 
         # 3. Vérifier l'accessibilité S3 de chaque document du graphe
@@ -1869,17 +1930,14 @@ async def storage_check(
 
             # Si la clé n'est pas référencée dans le graphe → orphelin
             if key not in graph_keys:
-                orphans.append({
-                    "key": key,
-                    "uri": obj["uri"],
-                    "size": obj["size"],
-                    "last_modified": obj["last_modified"]
-                })
+                orphans.append(
+                    {"key": key, "uri": obj["uri"], "size": obj["size"], "last_modified": obj["last_modified"]}
+                )
 
         # 5. Construire le rapport
         def _human_size(size_bytes):
             """Convertit des bytes en taille lisible."""
-            for unit in ['B', 'KB', 'MB', 'GB']:
+            for unit in ["B", "KB", "MB", "GB"]:
                 if size_bytes < 1024:
                     return f"{size_bytes:.1f} {unit}"
                 size_bytes /= 1024
@@ -1898,20 +1956,20 @@ async def storage_check(
                 "errors": check_result["errors"],
                 "total_size": _human_size(check_result["total_size_bytes"]),
                 "total_size_bytes": check_result["total_size_bytes"],
-                "details": check_result["details"]
+                "details": check_result["details"],
             },
             "s3_orphans": {
                 "count": len(orphans),
                 "total_size": _human_size(orphan_total_size),
                 "total_size_bytes": orphan_total_size,
-                "files": orphans
+                "files": orphans,
             },
             "s3_total_objects": len(all_s3_objects),
             "summary": (
                 f"✅ {check_result['accessible']}/{check_result['total']} docs accessibles"
-                + (f", ❌ {check_result['missing']} manquants" if check_result['missing'] > 0 else "")
+                + (f", ❌ {check_result['missing']} manquants" if check_result["missing"] > 0 else "")
                 + (f", ⚠️ {len(orphans)} orphelins S3 ({_human_size(orphan_total_size)})" if orphans else "")
-            )
+            ),
         }
 
         return report
@@ -1922,20 +1980,22 @@ async def storage_check(
 
 @mcp.tool()
 async def storage_cleanup(
-    dry_run: Annotated[bool, Field(default=True, description="Si true, liste seulement. Si false, supprime réellement les orphelins")] = True
+    dry_run: Annotated[
+        bool, Field(default=True, description="Si true, liste seulement. Si false, supprime réellement les orphelins")
+    ] = True,
 ) -> dict:
     """
     Nettoie les fichiers orphelins sur S3.
-    
+
     Un fichier orphelin est un objet S3 qui n'est référencé par aucun document
     dans le graphe Neo4j (ni par une ontologie de mémoire).
-    
+
     ⚠️ Par défaut, mode dry_run=True : liste les fichiers sans les supprimer.
     Passez dry_run=False pour effectuer la suppression.
-    
+
     Args:
         dry_run: Si True, liste seulement. Si False, supprime réellement.
-        
+
     Returns:
         Liste des fichiers orphelins (supprimés ou à supprimer)
     """
@@ -1959,18 +2019,18 @@ async def storage_cleanup(
                 "message": "Aucun fichier orphelin trouvé. Le S3 est propre ! 🧹",
                 "orphans_found": 0,
                 "deleted": 0,
-                "dry_run": dry_run
+                "dry_run": dry_run,
             }
 
         if dry_run:
             return {
                 "status": "ok",
                 "message": f"🔍 {len(orphans)} fichiers orphelins trouvés ({check['s3_orphans']['total_size']}). "
-                           f"Relancez avec dry_run=false pour les supprimer.",
+                f"Relancez avec dry_run=false pour les supprimer.",
                 "orphans_found": len(orphans),
                 "deleted": 0,
                 "dry_run": True,
-                "files": orphans
+                "files": orphans,
             }
 
         # 2. Supprimer les orphelins
@@ -1980,12 +2040,12 @@ async def storage_cleanup(
         return {
             "status": "ok",
             "message": f"🗑️ {delete_result['deleted_count']} fichiers orphelins supprimés "
-                       f"({check['s3_orphans']['total_size']} libérés).",
+            f"({check['s3_orphans']['total_size']} libérés).",
             "orphans_found": len(orphans),
             "deleted": delete_result["deleted_count"],
             "errors": delete_result["error_count"],
             "dry_run": False,
-            "files": orphans
+            "files": orphans,
         }
 
     except Exception as e:
@@ -1996,16 +2056,16 @@ async def storage_cleanup(
 async def system_about() -> dict:
     """
     Identité et rôle du service MCP Memory.
-    
+
     Retourne une description complète du service :
     - Qui il est et pourquoi il existe
     - Ses capacités (outils disponibles, ontologies)
     - Les mémoires actives
     - Les services connectés et leur état
-    
+
     Cet outil ne nécessite aucune authentification.
     Idéal pour découvrir le service ou vérifier sa configuration.
-    
+
     Returns:
         Identité, capacités, mémoires actives, état des services
     """
@@ -2024,6 +2084,7 @@ async def system_about() -> dict:
         ontologies_info = []
         try:
             from .core.ontology import get_ontology_manager
+
             ontology_manager = get_ontology_manager()
             ontologies_info = ontology_manager.list_ontologies()
         except Exception:
@@ -2035,14 +2096,16 @@ async def system_about() -> dict:
             memories = await get_graph().list_memories()
             for m in memories:
                 stats = await get_graph().get_memory_stats(m.id)
-                memories_info.append({
-                    "id": m.id,
-                    "name": m.name,
-                    "ontology": m.ontology,
-                    "documents": stats.document_count,
-                    "entities": stats.entity_count,
-                    "relations": stats.relation_count,
-                })
+                memories_info.append(
+                    {
+                        "id": m.id,
+                        "name": m.name,
+                        "ontology": m.ontology,
+                        "documents": stats.document_count,
+                        "entities": stats.entity_count,
+                        "relations": stats.relation_count,
+                    }
+                )
         except Exception:
             pass
 
@@ -2067,7 +2130,14 @@ async def system_about() -> dict:
             "Ingestion": ["memory_ingest"],
             "Recherche & Q&A": ["memory_search", "memory_query", "memory_get_context", "question_answer"],
             "Documents": ["document_list", "document_get", "document_delete"],
-            "Backup/Restore": ["backup_create", "backup_list", "backup_restore", "backup_download", "backup_delete", "backup_restore_archive"],
+            "Backup/Restore": [
+                "backup_create",
+                "backup_list",
+                "backup_restore",
+                "backup_download",
+                "backup_delete",
+                "backup_restore_archive",
+            ],
             "Administration": ["admin_create_token", "admin_list_tokens", "admin_revoke_token", "admin_update_token"],
             "Diagnostic": ["system_health", "system_about", "storage_check", "storage_cleanup"],
             "Visualisation": ["memory_graph", "ontology_list"],
@@ -2080,14 +2150,14 @@ async def system_about() -> dict:
                 "name": settings.mcp_server_name,
                 "version": version,
                 "description": "Service de mémoire à long terme pour agents IA, "
-                               "basé sur un Knowledge Graph (Neo4j) complété par "
-                               "un RAG vectoriel (Qdrant).",
+                "basé sur un Knowledge Graph (Neo4j) complété par "
+                "un RAG vectoriel (Qdrant).",
                 "purpose": "Extraire, stocker et rechercher des connaissances "
-                           "structurées (entités, relations) à partir de documents, "
-                           "avec isolation multi-tenant par namespace.",
+                "structurées (entités, relations) à partir de documents, "
+                "avec isolation multi-tenant par namespace.",
                 "approach": "Graph-First : le Knowledge Graph est la source principale. "
-                            "Le RAG vectoriel intervient en complément (Graph-Guided RAG) "
-                            "pour enrichir les réponses avec des extraits textuels précis.",
+                "Le RAG vectoriel intervient en complément (Graph-Guided RAG) "
+                "pour enrichir les réponses avec des extraits textuels précis.",
                 "provider": "Cloud Temple",
                 "repo": "https://github.com/chrlesur/graph-memory.git",
             },
@@ -2096,8 +2166,7 @@ async def system_about() -> dict:
                 "categories": {k: len(v) for k, v in tools_categories.items()},
                 "tools_list": tools_categories,
                 "ontologies": [
-                    {"name": o.get("name", "?"), "description": o.get("description", "")}
-                    for o in ontologies_info
+                    {"name": o.get("name", "?"), "description": o.get("description", "")} for o in ontologies_info
                 ],
                 "supported_formats": ["txt", "md", "html", "docx", "pdf", "csv"],
             },
@@ -2120,11 +2189,11 @@ async def system_about() -> dict:
 async def system_health() -> dict:
     """
     Vérifie l'état de santé du système.
-    
+
     Teste les connexions à tous les services :
     S3, Neo4j, LLMaaS, Qdrant, Embedding.
     Les 5 doivent être OK, sinon le service est considéré en erreur.
-    
+
     Returns:
         État de chaque service
     """
@@ -2163,33 +2232,31 @@ async def system_health() -> dict:
     # Statut global : TOUS doivent être OK (couplage strict)
     all_ok = all(r.get("status") == "ok" for r in results.values())
 
-    return {
-        "status": "ok" if all_ok else "error",
-        "services": results
-    }
+    return {"status": "ok" if all_ok else "error", "services": results}
 
 
 # =============================================================================
 # OUTILS MCP - Backup / Restore
 # =============================================================================
 
+
 @mcp.tool()
 async def backup_create(
     memory_id: Annotated[str, Field(description="ID de la mémoire à sauvegarder")],
     description: Annotated[str | None, Field(default=None, description="Description optionnelle du backup")] = None,
-    ctx: Context | None = None
+    ctx: Context | None = None,
 ) -> dict:
     """
     Crée un backup complet d'une mémoire sur S3.
-    
+
     Exporte le graphe Neo4j (entités, relations, documents),
     les vecteurs Qdrant (embeddings), et les références des documents S3.
     Applique la politique de rétention (BACKUP_RETENTION_COUNT).
-    
+
     Args:
         memory_id: ID de la mémoire à sauvegarder
         description: Description optionnelle du backup
-        
+
     Returns:
         backup_id, statistiques, temps d'exécution
     """
@@ -2210,9 +2277,7 @@ async def backup_create(
                     pass
 
         result = await get_backup().create_backup(
-            memory_id=memory_id,
-            description=description,
-            progress_callback=_progress
+            memory_id=memory_id, description=description, progress_callback=_progress
         )
         return result
     except Exception as e:
@@ -2221,15 +2286,17 @@ async def backup_create(
 
 @mcp.tool()
 async def backup_list(
-    memory_id: Annotated[str | None, Field(default=None, description="Filtrer par mémoire (optionnel, tous si omis)")] = None
+    memory_id: Annotated[
+        str | None, Field(default=None, description="Filtrer par mémoire (optionnel, tous si omis)")
+    ] = None,
 ) -> dict:
     """
     Liste les backups disponibles sur S3.
-    
+
     Args:
         memory_id: Si fourni, liste uniquement les backups de cette mémoire.
                    Sinon, liste tous les backups.
-        
+
     Returns:
         Liste des backups avec date, taille, statistiques
     """
@@ -2261,7 +2328,7 @@ async def backup_list(
                     "version": b.get("version"),
                 }
                 for b in backups
-            ]
+            ],
         }
     except Exception as e:
         return {"status": "error", "message": str(e)}
@@ -2270,26 +2337,27 @@ async def backup_list(
 @mcp.tool()
 async def backup_restore(
     backup_id: Annotated[str, Field(description="ID du backup (format: 'memory_id/timestamp')")],
-    ctx: Context | None = None
+    ctx: Context | None = None,
 ) -> dict:
     """
     Restaure une mémoire depuis un backup S3.
-    
+
     ⚠️ La mémoire NE DOIT PAS exister (erreur sinon).
     Supprimez-la d'abord avec memory_delete si nécessaire.
-    
+
     Restaure le graphe Neo4j + les vecteurs Qdrant tels qu'ils étaient,
     SANS refaire l'extraction LLM (instantané).
-    
+
     Args:
         backup_id: ID du backup (format: "memory_id/timestamp")
-        
+
     Returns:
         Compteurs de restauration (entités, relations, vecteurs, documents S3)
     """
     try:
         # Sécurité : extraire memory_id du backup_id, vérifier accès + write
         from .core.backup import BackupService
+
         mid, _ = BackupService._validate_backup_id(backup_id)
         access_err = check_memory_access(mid)
         if access_err:
@@ -2305,10 +2373,7 @@ async def backup_restore(
                 except Exception:
                     pass
 
-        result = await get_backup().restore_backup(
-            backup_id=backup_id,
-            progress_callback=_progress
-        )
+        result = await get_backup().restore_backup(backup_id=backup_id, progress_callback=_progress)
         return result
     except Exception as e:
         return {"status": "error", "message": str(e)}
@@ -2317,25 +2382,28 @@ async def backup_restore(
 @mcp.tool()
 async def backup_download(
     backup_id: Annotated[str, Field(description="ID du backup (format: 'memory_id/timestamp')")],
-    include_documents: Annotated[bool, Field(default=False, description="Si true, inclut les documents originaux (PDF, DOCX, etc.)")] = False,
-    ctx: Context | None = None
+    include_documents: Annotated[
+        bool, Field(default=False, description="Si true, inclut les documents originaux (PDF, DOCX, etc.)")
+    ] = False,
+    ctx: Context | None = None,
 ) -> dict:
     """
     Télécharge un backup sous forme d'archive tar.gz encodée en base64.
-    
+
     Par défaut (light) : uniquement les données JSON (graphe + vecteurs).
     Avec include_documents=True : inclut aussi les fichiers originaux (PDF, DOCX, etc.).
-    
+
     Args:
         backup_id: ID du backup (format: "memory_id/timestamp")
         include_documents: Si True, inclut les documents originaux dans l'archive
-        
+
     Returns:
         Archive tar.gz encodée en base64 + nom de fichier suggéré
     """
     try:
         # Sécurité : extraire memory_id du backup_id, vérifier accès mémoire
         from .core.backup import BackupService
+
         mid, _ = BackupService._validate_backup_id(backup_id)
         access_err = check_memory_access(mid)
         if access_err:
@@ -2349,13 +2417,12 @@ async def backup_download(
                     pass
 
         archive_bytes = await get_backup().download_backup(
-            backup_id=backup_id,
-            include_documents=include_documents,
-            progress_callback=_progress
+            backup_id=backup_id, include_documents=include_documents, progress_callback=_progress
         )
 
         # Encoder en base64 pour transmission via MCP
         import base64 as b64
+
         archive_b64 = b64.b64encode(archive_bytes).decode("ascii")
 
         # Nom de fichier suggéré
@@ -2376,20 +2443,21 @@ async def backup_download(
 
 @mcp.tool()
 async def backup_delete(
-    backup_id: Annotated[str, Field(description="ID du backup à supprimer (format: 'memory_id/timestamp')")]
+    backup_id: Annotated[str, Field(description="ID du backup à supprimer (format: 'memory_id/timestamp')")],
 ) -> dict:
     """
     Supprime un backup de S3.
-    
+
     Args:
         backup_id: ID du backup (format: "memory_id/timestamp")
-        
+
     Returns:
         Nombre de fichiers supprimés
     """
     try:
         # Sécurité : extraire memory_id du backup_id, vérifier accès + write
         from .core.backup import BackupService
+
         mid, _ = BackupService._validate_backup_id(backup_id)
         access_err = check_memory_access(mid)
         if access_err:
@@ -2407,21 +2475,21 @@ async def backup_delete(
 @mcp.tool()
 async def backup_restore_archive(
     archive_base64: Annotated[str, Field(description="Contenu de l'archive tar.gz encodé en base64")],
-    ctx: Context | None = None
+    ctx: Context | None = None,
 ) -> dict:
     """
     Restaure une mémoire depuis une archive tar.gz (base64).
-    
+
     L'archive doit contenir manifest.json, graph_data.json, qdrant_vectors.jsonl.
     Si elle contient un dossier documents/, les fichiers sont re-uploadés sur S3.
-    
+
     ⚠️ La mémoire NE DOIT PAS exister (erreur sinon).
-    
+
     Usage typique : backup download --include-documents → fichier.tar.gz → restore-file
-    
+
     Args:
         archive_base64: Contenu de l'archive tar.gz encodé en base64
-        
+
     Returns:
         Compteurs de restauration (entités, relations, vecteurs, documents S3)
     """
@@ -2436,9 +2504,10 @@ async def backup_restore_archive(
         # Extraire le memory_id du manifest pour vérifier l'accès
         import tarfile
         from io import BytesIO
+
         try:
-            with tarfile.open(fileobj=BytesIO(archive_bytes), mode='r:gz') as tar:
-                manifest_member = tar.getmember('manifest.json')
+            with tarfile.open(fileobj=BytesIO(archive_bytes), mode="r:gz") as tar:
+                manifest_member = tar.getmember("manifest.json")
                 manifest_file = tar.extractfile(manifest_member)
                 if manifest_file:
                     manifest_data = json.loads(manifest_file.read())
@@ -2459,10 +2528,7 @@ async def backup_restore_archive(
                 except Exception:
                     pass
 
-        result = await get_backup().restore_from_archive(
-            archive_bytes=archive_bytes,
-            progress_callback=_progress
-        )
+        result = await get_backup().restore_from_archive(archive_bytes=archive_bytes, progress_callback=_progress)
         return result
     except Exception as e:
         return {"status": "error", "message": str(e)}
@@ -2471,6 +2537,7 @@ async def backup_restore_archive(
 # =============================================================================
 # Point d'entrée
 # =============================================================================
+
 
 def main():
     """Point d'entrée principal."""
